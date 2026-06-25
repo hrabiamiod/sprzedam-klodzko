@@ -4,6 +4,7 @@ const state = {
   categories: [],
   types: [],
   listings: [],
+  featured: [],
   fixedCategory: '',
   stats: null
 };
@@ -140,9 +141,10 @@ function listingCard(listing) {
   const image = listing.image_base64 ? `data:${listing.image_mime || 'image/jpeg'};base64,${listing.image_base64}` : '';
   const href = `/ogloszenie/${encodeURIComponent(listing.slug)}`;
   return `
-    <a class="listing-card" href="${href}">
+    <a class="listing-card ${listing.is_featured ? 'featured' : ''}" href="${href}">
       ${image ? `<img class="listing-image" src="${image}" alt="${esc(listing.title)}" loading="lazy" />` : `<div class="listing-image"></div>`}
       <div class="card-top">
+        ${listing.is_featured ? '<span class="pill featured-pill">Wyróżnione</span>' : ''}
         <span class="pill">${esc(listing.type)}</span>
         <span class="pill gray">${esc(listing.category)}</span>
       </div>
@@ -224,6 +226,25 @@ function renderListings(items) {
   grid.innerHTML = items.map(listingCard).join('');
 }
 
+function renderFeatured(items) {
+  const panel = document.getElementById('featured-panel');
+  const grid = document.getElementById('featured-grid');
+  if (!panel || !grid) return;
+  if (!items.length) {
+    panel.hidden = true;
+    grid.innerHTML = '';
+    return;
+  }
+  panel.hidden = false;
+  grid.innerHTML = items.map(listingCard).join('');
+}
+
+async function loadFeaturedListings() {
+  const payload = await fetchJson('/listings?featured=1&sort=newest&limit=3');
+  state.featured = payload.items || [];
+  renderFeatured(state.featured);
+}
+
 async function loadListings() {
   const loadState = document.getElementById('load-state');
   if (loadState) loadState.textContent = 'Ładowanie...';
@@ -260,7 +281,7 @@ async function initIndex() {
   state.stats = statsPayload.ok ? statsPayload : null;
   renderFilters();
   renderTurnstile('create-turnstile-slot', 'create-turnstile-token');
-  await loadListings();
+  await Promise.all([loadFeaturedListings(), loadListings()]);
 
   document.getElementById('apply-filters')?.addEventListener('click', (event) => {
     event.preventDefault();

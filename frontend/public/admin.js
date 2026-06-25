@@ -15,6 +15,8 @@ const STATUS_LABELS = {
 
 const ACTION_LABELS = {
   approve: 'Zatwierdź',
+  feature: 'Wyróżnij',
+  unfeature: 'Zdejmij wyróżnienie',
   reject: 'Odrzuć',
   archive: 'Archiwizuj',
   delete: 'Usuń'
@@ -98,6 +100,7 @@ function moderationHint(item) {
   if (item.moderation_status) parts.push(`moderacja: ${item.moderation_status}`);
   if (item.moderation_reason) parts.push(item.moderation_reason);
   if (Number.isFinite(Number(item.report_count)) && Number(item.report_count) > 0) parts.push(`${item.report_count} zgłoszeń`);
+  if (item.is_featured) parts.push(`wyróżnione do: ${formatDate(item.featured_until)}`);
   if (item.expires_at) parts.push(`wygasa: ${formatDate(item.expires_at)}`);
   return parts.join(' · ');
 }
@@ -240,6 +243,7 @@ function listingTable(items) {
             <td>
               <div class="row-actions">
                 <button class="button ghost small" data-listing-action="approve" data-id="${esc(item.id)}">${ACTION_LABELS.approve}</button>
+                <button class="button ghost small" data-listing-action="${item.is_featured ? 'unfeature' : 'feature'}" data-id="${esc(item.id)}">${item.is_featured ? ACTION_LABELS.unfeature : ACTION_LABELS.feature}</button>
                 <button class="button ghost small" data-listing-action="reject" data-id="${esc(item.id)}">${ACTION_LABELS.reject}</button>
                 <button class="button ghost small" data-listing-action="archive" data-id="${esc(item.id)}">${ACTION_LABELS.archive}</button>
                 <button class="button ghost small" data-history-id="${esc(item.id)}">Historia</button>

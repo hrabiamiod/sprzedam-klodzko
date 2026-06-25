@@ -80,6 +80,9 @@ type ListingRow = {
   deleted_reason: string | null;
   archived_at: string | null;
   archived_reason: string | null;
+  featured_at: string | null;
+  featured_until: string | null;
+  featured_reason: string | null;
   version: number;
   created_from_ip: string | null;
   updated_from_ip: string | null;
@@ -479,7 +482,8 @@ function listingBaseSelect() {
     contact_name, contact_email, contact_phone, contact_consent, image_base64, image_mime,
     owner_email, owner_email_normalized, owner_token_hash, owner_token_hint, verification_token_hash,
     approval_token_hash, verification_expires_at, approval_expires_at, verified_at, approved_at, published_at,
-    expires_at, reminder_sent_at, deleted_at, deleted_reason, archived_at, archived_reason, version,
+    expires_at, reminder_sent_at, deleted_at, deleted_reason, archived_at, archived_reason,
+    featured_at, featured_until, featured_reason, version,
     created_from_ip, updated_from_ip, created_at, updated_at
   `;
 }
@@ -724,6 +728,8 @@ function listingToPublicJson(listing: ListingRow) {
     image_base64: listing.image_base64,
     image_mime: listing.image_mime,
     report_count: listing.report_count,
+    is_featured: Boolean(listing.featured_until && new Date(listing.featured_until).getTime() > Date.now()),
+    featured_until: listing.featured_until,
     created_at: listing.created_at,
     approved_at: listing.approved_at,
     expires_at: listing.expires_at,
@@ -1105,13 +1111,15 @@ async function processExpiryAndReminders(env: Env) {
 async function handlePublicList(request: Request, env: Env) {
   const url = new URL(request.url);
   const { q, category, type, minPriceCents, maxPriceCents, sort, page, limit } = parseListSearchParams(url);
+  const featuredOnly = url.searchParams.get('featured') === '1' || url.searchParams.get('featured') === 'true';
+  const now = nowIso();
   const offset = (page - 1) * limit;
   const where: string[] = [
     `status = 'approved'`,
     `deleted_at IS NULL`,
     `(expires_at IS NULL OR expires_at > ?)`
   ];
-  const binds: unknown[] = [nowIso()];
+  const binds: unknown[] = [now];
   if (category && CATEGORIES.includes(category as typeof CATEGORIES[number])) {
     where.push('category = ?');
     binds.push(category);
@@ -1132,17 +1140,22 @@ async function handlePublicList(request: Request, env: Env) {
     where.push('price_cents <= ?');
     binds.push(maxPriceCents);
   }
+  if (featuredOnly) {
+    where.push('featured_until IS NOT NULL AND featured_until > ?');
+    binds.push(now);
+  }
   const orderBy = {
-    newest: 'approved_at DESC, created_at DESC',
+    newest: 'CASE WHEN featured_until IS NOT NULL AND featured_until > ? THEN 0 ELSE 1 END ASC, featured_until DESC, approved_at DESC, created_at DESC',
     oldest: 'approved_at ASC, created_at ASC',
-    price_asc: 'price_cents ASC, approved_at DESC',
-    price_desc: 'price_cents DESC, approved_at DESC'
+    price_asc: 'CASE WHEN featured_until IS NOT NULL AND featured_until > ? THEN 0 ELSE 1 END ASC, price_cents ASC, approved_at DESC',
+    price_desc: 'CASE WHEN featured_until IS NOT NULL AND featured_until > ? THEN 0 ELSE 1 END ASC, price_cents DESC, approved_at DESC'
   }[sort] || 'approved_at DESC, created_at DESC';
+  const orderBinds = orderBy.includes('?') ? [now] : [];
   const total = await env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE ${where.join(' AND ')}`).bind(...binds).first<{ count: number }>();
   const rows = await env.DB.prepare(
     `SELECT ${listingBaseSelect()} FROM listings WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
   )
-    .bind(...binds, limit, offset)
+    .bind(...binds, ...orderBinds, limit, offset)
     .all<ListingRow>();
 
   return json({
@@ -1875,6 +1888,17 @@ async function handleAdminAction(request: Request, env: Env, listingId: string) 
   if (action === 'approve') {
     await env.DB.prepare(`UPDATE listings SET status = 'approved', moderation_status = 'approved', approved_at = ?, published_at = ?, expires_at = ?, updated_at = ? WHERE id = ?`)
       .bind(nowIso(), nowIso(), daysFromNow(30), nowIso(), listing.id)
+      .run();
+  } else if (action === 'feature') {
+    if (listing.status !== 'approved') {
+      throw new HttpError(400, 'Wyróżnić można tylko aktywne ogłoszenie');
+    }
+    await env.DB.prepare(`UPDATE listings SET featured_at = ?, featured_until = ?, featured_reason = ?, updated_at = ? WHERE id = ?`)
+      .bind(nowIso(), daysFromNow(7), reason, nowIso(), listing.id)
+      .run();
+  } else if (action === 'unfeature') {
+    await env.DB.prepare(`UPDATE listings SET featured_at = NULL, featured_until = NULL, featured_reason = ?, updated_at = ? WHERE id = ?`)
+      .bind(reason, nowIso(), listing.id)
       .run();
   } else if (action === 'reject') {
     await createArchiveSnapshot(env, listing, reason, 'admin');

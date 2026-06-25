@@ -285,6 +285,12 @@ label span {
   border-radius: var(--radius);
   background: var(--surface);
 }
+.listing-card.featured {
+  border-color: rgba(183, 121, 31, 0.36);
+  background:
+    linear-gradient(145deg, rgba(183, 121, 31, 0.12), rgba(17, 124, 111, 0.06)),
+    var(--surface);
+}
 .listing-card:hover {
   border-color: var(--accent);
   box-shadow: 0 14px 28px rgba(23, 33, 43, 0.08);
@@ -331,6 +337,10 @@ label span {
   color: var(--accent);
 }
 .pill.gray, .tag { background: #edf1f5; color: var(--muted); }
+.pill.featured-pill {
+  background: rgba(183, 121, 31, 0.16);
+  color: var(--amber);
+}
 .pill.danger, .tag.bad { background: rgba(180, 35, 24, 0.12); color: var(--danger); }
 .tag.ok { background: rgba(8, 116, 67, 0.12); color: var(--ok); }
 .danger-action {
