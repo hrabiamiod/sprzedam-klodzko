@@ -124,6 +124,82 @@ function renderPublicationStatus(status) {
   `;
 }
 
+function timelineHas(timeline, labels) {
+  const wanted = Array.isArray(labels) ? labels : [labels];
+  return timeline.some((item) => wanted.includes(item.label));
+}
+
+function renderPublicationRoadmap(timeline, publicationStatus = {}) {
+  const state = publicationStatus.state || '';
+  const steps = [
+    {
+      key: 'created',
+      label: 'Utworzone',
+      detail: 'Ogłoszenie zostało zapisane w systemie.',
+      done: timelineHas(timeline, 'listing.created')
+    },
+    {
+      key: 'verified',
+      label: 'Potwierdzone',
+      detail: 'Link potwierdzający został użyty przez właściciela.',
+      done: timelineHas(timeline, ['listing.verified', 'listing.approved'])
+    },
+    {
+      key: 'moderation',
+      label: 'Moderacja',
+      detail: 'Treść jest sprawdzana automatycznie albo ręcznie.',
+      done: timelineHas(timeline, ['listing.moderation.approved', 'admin.listing.approve']),
+      current: state === 'moderation'
+    },
+    {
+      key: 'published',
+      label: 'Publikacja',
+      detail: 'Ogłoszenie jest widoczne publicznie do czasu wygaśnięcia.',
+      done: state === 'live' || timelineHas(timeline, ['listing.moderation.approved', 'admin.listing.approve']),
+      current: state === 'live'
+    }
+  ];
+
+  return `
+    <section class="owner-roadmap" aria-label="Etapy publikacji">
+      ${steps.map((step) => `
+        <article class="${step.done ? 'done' : ''} ${step.current ? 'current' : ''}">
+          <span>${esc(step.done ? 'OK' : step.current ? 'TERAZ' : 'CZEKA')}</span>
+          <strong>${esc(step.label)}</strong>
+          <p>${esc(step.detail)}</p>
+        </article>
+      `).join('')}
+    </section>
+  `;
+}
+
+function renderOwnerHints(publicationStatus, canManage, canExtend) {
+  const hints = [];
+  if (publicationStatus.state === 'needs_verification') {
+    hints.push('Wróć do linku potwierdzającego z ekranu po dodaniu ogłoszenia.');
+  }
+  if (publicationStatus.state === 'moderation') {
+    hints.push('Nie wysyłaj ponownie tego samego ogłoszenia. Moderacja działa na tej wersji.');
+  }
+  if (canManage && publicationStatus.can_edit !== false) {
+    hints.push('Edycja aktywnego ogłoszenia cofnie je do moderacji, żeby chronić rynek przed podmianą treści.');
+  }
+  if (canExtend) {
+    hints.push('Przedłuż ogłoszenie, jeśli oferta jest nadal aktualna.');
+  }
+  if (!hints.length) {
+    hints.push('Zachowaj link zarządzania. Bez niego nie odzyskasz szybkiej kontroli nad ogłoszeniem.');
+  }
+  return `
+    <aside class="owner-hints">
+      <span class="eyebrow">Co teraz</span>
+      <ul>
+        ${hints.map((hint) => `<li>${esc(hint)}</li>`).join('')}
+      </ul>
+    </aside>
+  `;
+}
+
 async function fileToDataUrl(file) {
   if (!file) return null;
   return await new Promise((resolve, reject) => {
@@ -144,14 +220,21 @@ function renderListing(listing, tokenPurpose, timeline = [], publicationStatus =
   const canEdit = canManage && publicationStatus.can_edit !== false;
   const canExtend = publicationStatus.can_extend === true;
   const publicUrl = publicationStatus.public_url || publicListingUrl(listing);
+  const manageUrl = window.location.href;
   const root = document.getElementById('manage-root');
   root.innerHTML = `
-    <div class="section-head">
+    <div class="owner-command">
       <div>
         <span class="eyebrow">Panel ogłoszenia</span>
         <h1>${esc(listing.title)}</h1>
+        <p>To jest prywatny panel właściciela. Pozwala śledzić publikację, edytować treść, przedłużyć ofertę i usunąć ogłoszenie.</p>
       </div>
-      <div class="status-note">Status: ${esc(statusLabel(listing.status))}</div>
+      <aside class="owner-token-card">
+        <span class="tag ${canManage ? 'ok' : 'warn'}">${canManage ? 'Pełne zarządzanie' : 'Tylko przedłużenie'}</span>
+        <strong>Nie zgub tego linku</strong>
+        <span>Nie wymagamy konta, więc ten adres jest Twoim dostępem do panelu.</span>
+        <button class="button ghost small" type="button" data-copy-manage-link="${esc(manageUrl)}">Kopiuj link panelu</button>
+      </aside>
     </div>
     <div class="metric-grid manage-metrics">
       <div class="metric"><strong>${esc(publicationStatus.label || statusLabel(listing.status))}</strong><span>Status publikacji</span></div>
@@ -159,14 +242,19 @@ function renderListing(listing, tokenPurpose, timeline = [], publicationStatus =
       <div class="metric"><strong>${esc(formatDate(listing.updated_at))}</strong><span>Ostatnia zmiana</span></div>
     </div>
     ${renderPublicationStatus(publicationStatus)}
-    <div class="detail-hero">
+    ${renderPublicationRoadmap(timeline, publicationStatus)}
+    <div class="owner-overview">
       <div class="detail-media">
         ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : '<div class="no-image">Brak zdjęcia</div>'}
       </div>
-      <aside class="detail-panel">
-        <div class="pill-row">
-          <span class="pill">${esc(listing.type)}</span>
-          <span class="pill gray">${esc(listing.category)}</span>
+      <aside class="detail-panel owner-preview">
+        <div>
+          <span class="eyebrow">Podgląd oferty</span>
+          <div class="pill-row">
+            <span class="pill">${esc(listing.type)}</span>
+            <span class="pill gray">${esc(listing.category)}</span>
+            <span class="pill gray">${esc(listing.city || 'Kłodzko')}</span>
+          </div>
         </div>
         <div class="detail-price">${money(listing.price_cents, listing.currency)}</div>
         <p>${esc(listing.description)}</p>
@@ -178,6 +266,7 @@ function renderListing(listing, tokenPurpose, timeline = [], publicationStatus =
           <span class="tag ${esc(publicationStatus.tone || 'ok')}">Publikacja: ${esc(publicationStatus.label || statusLabel(listing.status))}</span>
         </div>
       </aside>
+      ${renderOwnerHints(publicationStatus, canManage, canExtend)}
     </div>
     <section class="publish-panel" id="edit-section">
       <div class="section-head">
@@ -253,6 +342,7 @@ function renderListing(listing, tokenPurpose, timeline = [], publicationStatus =
       <div class="hero-actions">
         ${canExtend ? '<button class="button primary" id="extend-button" type="button">Przedłuż o 30 dni</button>' : ''}
         ${publicationStatus.public_url ? '<button class="button ghost" id="copy-public-link" type="button">Kopiuj link publiczny</button>' : ''}
+        <button class="button ghost" type="button" data-copy-manage-link="${esc(manageUrl)}">Kopiuj link panelu</button>
         ${publicationStatus.public_url ? `<a class="button ghost" href="${esc(publicUrl)}" target="_blank" rel="noreferrer">Zobacz publicznie</a>` : ''}
         ${canManage ? '<button class="button ghost danger-action" id="delete-button" type="button">Usuń ogłoszenie</button>' : ''}
         <a class="button ghost" href="/">Wróć do listy</a>
@@ -298,6 +388,19 @@ async function init() {
       message.hidden = false;
       message.textContent = publicListingUrl(listing);
     }
+  });
+  document.querySelectorAll('[data-copy-manage-link]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const value = button.getAttribute('data-copy-manage-link') || window.location.href;
+      try {
+        await navigator.clipboard.writeText(value);
+        message.hidden = false;
+        message.textContent = 'Link panelu został skopiowany.';
+      } catch {
+        message.hidden = false;
+        message.textContent = value;
+      }
+    });
   });
   document.getElementById('edit-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
