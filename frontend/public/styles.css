@@ -608,6 +608,17 @@ label span {
   border-radius: var(--radius);
   background: var(--surface-soft);
 }
+.contact-reveal {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(17, 124, 111, 0.18);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.62);
+}
+.contact-reveal .turnstile-slot:empty {
+  min-height: 0;
+}
 .detail-price {
   font-size: clamp(1.7rem, 4vw, 2.6rem);
   font-weight: 900;

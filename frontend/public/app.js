@@ -679,9 +679,12 @@ async function initListingPage() {
           <span class="pill gray">${esc(listing.city || 'Kłodzko')}</span>
           <span class="pill gray">${new Date(listing.created_at).toLocaleDateString('pl-PL')}</span>
         </div>
-        <div>
+        <div class="contact-reveal" id="contact-card">
           <strong>Kontakt</strong>
-          <p>${esc(listing.contact_name || '')}<br />${esc(listing.contact_email || '')}${listing.contact_phone ? `<br />${esc(listing.contact_phone)}` : ''}</p>
+          <p class="status-note">Dane kontaktowe pokażemy po krótkiej weryfikacji anty-bot.</p>
+          <div class="turnstile-slot" id="contact-turnstile-slot"></div>
+          <input type="hidden" id="contact-turnstile-token" />
+          <button class="button primary" id="contact-reveal-button" type="button">Pokaż kontakt</button>
         </div>
         <div class="pill-row">
           <span class="tag ok">Aktywne</span>
@@ -730,6 +733,7 @@ async function initListingPage() {
     </form>
     <pre class="message" id="report-message" hidden></pre>
   `;
+  renderTurnstile('contact-turnstile-slot', 'contact-turnstile-token');
   document.getElementById('share-button')?.addEventListener('click', async () => {
     const message = document.getElementById('report-message');
     const url = publicUrl;
@@ -748,6 +752,48 @@ async function initListingPage() {
         message.hidden = false;
         message.textContent = url;
       }
+    }
+  });
+  document.getElementById('contact-reveal-button')?.addEventListener('click', async () => {
+    const message = document.getElementById('report-message');
+    const tokenInput = document.getElementById('contact-turnstile-token');
+    const turnstileToken = tokenInput?.value || '';
+    if (config.turnstileSiteKey && !turnstileToken) {
+      renderTurnstile('contact-turnstile-slot', 'contact-turnstile-token');
+      if (message) {
+        message.hidden = false;
+        message.textContent = 'Potwierdź weryfikację anty-bot, żeby wyświetlić kontakt.';
+      }
+      return;
+    }
+    try {
+      const payload = await fetchJson(`/listings/${encodeURIComponent(listing.id)}/contact`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ turnstile_token: turnstileToken })
+      });
+      const contact = payload.contact || {};
+      const card = document.getElementById('contact-card');
+      if (card) {
+        card.innerHTML = `
+          <strong>Kontakt</strong>
+          <p>${esc(contact.name || '')}<br />${esc(contact.email || '')}${contact.phone ? `<br />${esc(contact.phone)}` : ''}</p>
+          <div class="hero-actions">
+            <a class="button small ghost" href="mailto:${esc(contact.email || '')}">Napisz e-mail</a>
+            ${contact.phone ? `<a class="button small ghost" href="tel:${esc(contact.phone)}">Zadzwoń</a>` : ''}
+          </div>
+        `;
+      }
+      if (message) {
+        message.hidden = false;
+        message.textContent = 'Kontakt został wyświetlony.';
+      }
+    } catch (error) {
+      if (message) {
+        message.hidden = false;
+        message.textContent = error.message || String(error);
+      }
+      renderTurnstile('contact-turnstile-slot', 'contact-turnstile-token');
     }
   });
   document.getElementById('report-button')?.addEventListener('click', () => {

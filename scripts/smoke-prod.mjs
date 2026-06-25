@@ -47,6 +47,30 @@ await check('API listings', () => expectJson('/api/listings?limit=3', (payload) 
   return payload.items.every((item) => !('contact_email' in item) && !('contact_phone' in item) && !('contact_name' in item));
 }));
 await check('API listings filters', () => expectJson('/api/listings?limit=3&sort=price_asc&min_price=0&max_price=100000', (payload) => payload.ok === true && payload.sort === 'price_asc' && Array.isArray(payload.items)));
+await check('API listing contact is protected', async () => {
+  const { response, body } = await fetchText('/api/listings?limit=1');
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${body.slice(0, 160)}`);
+  const listPayload = JSON.parse(body);
+  const slug = listPayload.items?.[0]?.slug;
+  if (!slug) return;
+  const detail = await fetchText(`/api/listings/${encodeURIComponent(slug)}`);
+  if (!detail.response.ok) throw new Error(`Detail HTTP ${detail.response.status}: ${detail.body.slice(0, 160)}`);
+  const detailPayload = JSON.parse(detail.body);
+  const item = detailPayload.item || {};
+  if ('contact_email' in item || 'contact_phone' in item || 'contact_name' in item) {
+    throw new Error('Public detail API exposed contact fields');
+  }
+  const contact = await fetchText(`/api/listings/${encodeURIComponent(slug)}/contact`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({})
+  });
+  const blockedByTurnstile = contact.response.status === 400 && contact.body.includes('weryfikację anty-bot');
+  const blockedByRateLimit = contact.response.status === 429 && contact.body.includes('Zbyt wiele prób');
+  if (!blockedByTurnstile && !blockedByRateLimit) {
+    throw new Error(`Expected protected contact endpoint, got ${contact.response.status}: ${contact.body.slice(0, 160)}`);
+  }
+});
 await check('Homepage', () => expectHtml('/', 'Sprzedam Kłodzko'));
 await check('Admin login page', () => expectHtml('/admin/', 'Logowanie administratora'));
 await check('Manage page', () => expectHtml('/manage', 'manage-root'));

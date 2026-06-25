@@ -201,6 +201,7 @@ function parseJsonSafe(value: string | null) {
 const THROTTLES = {
   listingCreate: { limit: 5, windowMinutes: 60 },
   reportCreate: { limit: 20, windowMinutes: 60 },
+  contactReveal: { limit: 30, windowMinutes: 60 },
   adminLogin: { limit: 10, windowMinutes: 10 }
 } as const;
 
@@ -750,6 +751,14 @@ function listingToPublicSummaryJson(listing: ListingRow) {
   return item;
 }
 
+function listingToPublicDetailJson(listing: ListingRow) {
+  return {
+    ...listingToPublicSummaryJson(listing),
+    contact_available: true,
+    has_contact_phone: Boolean(listing.contact_phone)
+  };
+}
+
 function listingPublicationStatus(env: Env, listing: ListingRow) {
   const publicUrl = buildAbsoluteUrl(cfg(env).siteBaseUrl, `/ogloszenie/${listing.slug}`);
   if (listing.status === 'approved') {
@@ -1265,7 +1274,40 @@ async function handlePublicDetail(env: Env, identifier: string) {
   if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now())) {
     throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
   }
-  return json({ ok: true, item: listingToPublicJson(listing) });
+  return json({ ok: true, item: listingToPublicDetailJson(listing) });
+}
+
+async function handleRevealListingContact(request: Request, env: Env, listingId: string) {
+  const listing = await fetchListingByIdOrSlug(env, listingId);
+  if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now())) {
+    throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
+  }
+  const body = await readJsonBody<Record<string, unknown>>(request);
+  const clientIp = getClientIp(request);
+  await checkThrottle(
+    env,
+    'contact.reveal.ip',
+    clientIp,
+    THROTTLES.contactReveal.limit,
+    THROTTLES.contactReveal.windowMinutes,
+    'Zbyt wiele prób wyświetlenia kontaktu z tego adresu IP. Spróbuj później.'
+  );
+  const turnstileToken = normalizeString(body.turnstile_token || body['cf-turnstile-response']);
+  await verifyTurnstileIfConfigured(env, turnstileToken, clientIp);
+  await logEvent(env, {
+    eventType: 'listing.contact.revealed',
+    actorType: 'visitor',
+    listingId: listing.id,
+    details: { token_required: Boolean(env.TURNSTILE_SECRET_KEY) }
+  });
+  return json({
+    ok: true,
+    contact: {
+      name: listing.contact_name,
+      email: listing.contact_email,
+      phone: listing.contact_phone
+    }
+  });
 }
 
 async function handlePublicConfig(env: Env) {
@@ -2095,6 +2137,10 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     if (pathname.startsWith('/api/listings/') && pathname.endsWith('/report') && request.method === 'POST') {
       const id = pathname.split('/')[3];
       return maybeWithCors(request, await handleReportListing(request, env, id));
+    }
+    if (pathname.startsWith('/api/listings/') && pathname.endsWith('/contact') && request.method === 'POST') {
+      const id = pathname.split('/')[3];
+      return maybeWithCors(request, await handleRevealListingContact(request, env, id));
     }
     if (pathname.startsWith('/api/listings/') && request.method === 'GET') {
       const id = pathname.split('/')[3];
