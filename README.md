@@ -139,6 +139,24 @@ Frontend jest w `frontend/public`.
 3. Nie używaj dodatkowego build step, to jest czysty statyczny frontend.
 4. Do deployu Pages użyj lokalnego `frontend/wrangler.toml` i uruchamiaj wrangler z `--cwd frontend`.
 
+## GitHub Actions
+
+Repo jest przygotowane do deployu z GitHuba:
+
+- `CI` uruchamia `npm run check` na pushach i pull requestach.
+- `Deploy Pages` publikuje `frontend/public` na Cloudflare Pages dla każdego pusha.
+- `Deploy Worker` wdraża Workera na `main`.
+
+Wymagane sekrety w GitHub:
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+Uwaga:
+
+- Dla prywatnego repo GitHub bez Pro nie pozwala ustawić klasycznej ochrony gałęzi ani rulesets.
+- Jeśli chcesz twardą ochronę `main`, trzeba repo upublicznić albo zostać przy kontroli procesu przez PR i workflowy.
+
 ## Routing Worker + Pages
 
 Najprostszy model to:
