@@ -139,6 +139,7 @@ type Env = {
   NTFY_TOPIC_URL?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
+  E2E_TURNSTILE_BYPASS_TOKEN?: string;
   ADMIN_USERNAME: string;
   ADMIN_PASSWORD: string;
   ADMIN_TOTP_SECRET: string;
@@ -575,6 +576,9 @@ async function notifyNtfy(env: Env, title: string, message: string) {
 
 async function verifyTurnstileIfConfigured(env: Env, token: string, ipAddress: string) {
   if (!env.TURNSTILE_SECRET_KEY) return;
+  if (env.APP_ENV !== 'prod' && env.E2E_TURNSTILE_BYPASS_TOKEN && timingSafeEqual(token, env.E2E_TURNSTILE_BYPASS_TOKEN)) {
+    return;
+  }
   if (!token) {
     throw new HttpError(400, 'Potwierdź weryfikację anty-bot');
   }

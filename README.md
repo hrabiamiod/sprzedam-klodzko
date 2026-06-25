@@ -231,6 +231,7 @@ Skrypt sprawdza bez tworzenia danych:
 - `/api/listings`,
 - `/`,
 - `/admin/`,
+- `/manage`,
 - `/kategoria/elektronika`,
 - `/sitemap.xml`,
 - blokadę `POST /api/listings` bez tokenu Turnstile.
@@ -260,10 +261,19 @@ npm run check
 4. Uruchom Worker lokalnie:
 
 ```bash
-npm run dev
+npm run dev -- --env dev
 ```
 
-5. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
+5. Opcjonalny pełny test flow ogłoszenia w środowisku nieprodukcyjnym:
+
+```bash
+wrangler secret put --env dev E2E_TURNSTILE_BYPASS_TOKEN
+E2E_BASE_URL=http://127.0.0.1:8787 E2E_TURNSTILE_TOKEN=<ten-sam-token> npm run e2e:listing
+```
+
+Bypass Turnstile działa tylko dla `APP_ENV != prod` i tylko po podaniu zgodnego `E2E_TURNSTILE_BYPASS_TOKEN`. Produkcja ignoruje ten bypass nawet przy przypadkowo ustawionym sekrecie.
+
+6. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
 
 ## Runbook operacyjny
 
@@ -336,6 +346,7 @@ Do MFA używany jest TOTP. W praktyce:
 - `GET /api/config`
 - `GET /api/categories`
 - `GET /`
+- `GET /manage`
 - dodanie ogłoszenia
 - zapisanie linków weryfikacyjnych
 - potwierdzenie linku

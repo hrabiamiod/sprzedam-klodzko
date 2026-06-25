@@ -9,6 +9,7 @@
     "check": "tsc --noEmit",
     "setup:prod": "node scripts/setup-prod.mjs",
     "smoke:prod": "node scripts/smoke-prod.mjs",
+    "e2e:listing": "node scripts/e2e-listing-flow.mjs",
     "types": "wrangler types",
     "db:exec": "wrangler d1 execute sprzedam-klodzko-db --file=./schema.sql",
     "db:drop": "wrangler d1 execute sprzedam-klodzko-db --command=\"DROP TABLE IF EXISTS listings;\""
