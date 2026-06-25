@@ -12,7 +12,7 @@ const devEnv = {
   ADMIN_TOTP_SECRET: 'JBSWY3DPEHPK3PXP',
   ADMIN_SESSION_SECRET: 'local-admin-session-secret',
   ADMIN_ALLOWED_IPS: '127.0.0.1,::1',
-  NTFY_TOPIC_URL: 'http://127.0.0.1:9/ntfy-e2e'
+  NTFY_TOPIC_URL: `${baseUrl}/__e2e-ntfy-failure`
 };
 
 function run(command, args, options = {}) {
