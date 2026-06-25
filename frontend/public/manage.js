@@ -46,6 +46,27 @@ function money(cents, currency = 'PLN') {
   }).format((cents || 0) / 100);
 }
 
+const STATUS_LABELS = {
+  pending: 'Oczekuje na moderację',
+  approved: 'Opublikowane',
+  rejected: 'Odrzucone',
+  expired: 'Wygasłe',
+  archived: 'Archiwum'
+};
+
+function formatDate(value) {
+  if (!value) return 'brak';
+  return new Date(value).toLocaleString('pl-PL');
+}
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status || 'nieznany';
+}
+
+function publicListingUrl(listing) {
+  return `${window.location.origin}/ogloszenie/${encodeURIComponent(listing.slug)}`;
+}
+
 async function fileToDataUrl(file) {
   if (!file) return null;
   return await new Promise((resolve, reject) => {
@@ -62,18 +83,25 @@ function getToken() {
 
 function renderListing(listing, tokenPurpose) {
   const image = listing.image_base64 ? `data:${listing.image_mime || 'image/jpeg'};base64,${listing.image_base64}` : '';
+  const canManage = tokenPurpose === 'manage_listing';
+  const publicUrl = publicListingUrl(listing);
   const root = document.getElementById('manage-root');
   root.innerHTML = `
     <div class="section-head">
       <div>
-        <span class="eyebrow">Ogłoszenie</span>
+        <span class="eyebrow">Panel ogłoszenia</span>
         <h1>${esc(listing.title)}</h1>
       </div>
-      <div class="status-note">Status: ${esc(listing.status)}</div>
+      <div class="status-note">Status: ${esc(statusLabel(listing.status))}</div>
+    </div>
+    <div class="metric-grid manage-metrics">
+      <div class="metric"><strong>${esc(statusLabel(listing.status))}</strong><span>Status publikacji</span></div>
+      <div class="metric"><strong>${esc(formatDate(listing.expires_at))}</strong><span>Wygasa</span></div>
+      <div class="metric"><strong>${esc(formatDate(listing.updated_at))}</strong><span>Ostatnia zmiana</span></div>
     </div>
     <div class="detail-hero">
       <div class="detail-media">
-        ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : ''}
+        ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : '<div class="no-image">Brak zdjęcia</div>'}
       </div>
       <aside class="detail-panel">
         <div class="pill-row">
@@ -84,19 +112,20 @@ function renderListing(listing, tokenPurpose) {
         <p>${esc(listing.description)}</p>
         <div class="pill-row">
           <span class="tag">${esc(listing.contact_email)}</span>
-          <span class="tag">${esc(listing.contact_phone || '')}</span>
+          ${listing.contact_phone ? `<span class="tag">${esc(listing.contact_phone)}</span>` : ''}
         </div>
         <div class="pill-row">
-          <span class="tag ok">Weryfikacja: ${esc(listing.status)}</span>
+          <span class="tag ok">Weryfikacja: ${esc(statusLabel(listing.status))}</span>
         </div>
       </aside>
     </div>
-    <section class="card" style="padding:18px;background:rgba(255,255,255,.6)" id="edit-section">
+    <section class="publish-panel" id="edit-section">
       <div class="section-head">
         <div>
           <span class="eyebrow">Edycja</span>
           <h2>Zmień dane ogłoszenia</h2>
         </div>
+        <div class="status-note">Po edycji opublikowane ogłoszenie wraca do moderacji.</div>
       </div>
       <form id="edit-form" class="form-grid">
         <label>
@@ -154,25 +183,26 @@ function renderListing(listing, tokenPurpose) {
         <button class="button primary" type="submit">Zapisz zmiany</button>
       </form>
     </section>
-    <section class="card" style="padding:18px;background:rgba(255,255,255,.6)">
+    <section class="publish-panel">
       <div class="section-head">
         <div>
           <span class="eyebrow">Operacje</span>
-          <h2>Przedłużenie i usunięcie</h2>
+          <h2>Publikacja i udostępnianie</h2>
         </div>
       </div>
       <div class="hero-actions">
         <button class="button primary" id="extend-button" type="button">Przedłuż o 30 dni</button>
-        <button class="button ghost" id="delete-button" type="button">Usuń ogłoszenie</button>
+        <button class="button ghost" id="copy-public-link" type="button">Kopiuj link publiczny</button>
+        <a class="button ghost" href="${esc(publicUrl)}" target="_blank" rel="noreferrer">Zobacz publicznie</a>
+        ${canManage ? '<button class="button ghost danger-action" id="delete-button" type="button">Usuń ogłoszenie</button>' : ''}
         <a class="button ghost" href="/">Wróć do listy</a>
       </div>
       <pre class="message" id="manage-message" hidden></pre>
     </section>
   `;
-  if (tokenPurpose !== 'manage_listing') {
+  if (!canManage) {
     const editSection = document.getElementById('edit-section');
     editSection.hidden = true;
-    document.getElementById('delete-button').hidden = true;
   }
 }
 
@@ -189,6 +219,16 @@ async function init() {
   renderListing(listing, payload.token_purpose);
 
   const message = document.getElementById('manage-message');
+  document.getElementById('copy-public-link')?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(publicListingUrl(listing));
+      message.hidden = false;
+      message.textContent = 'Link publiczny został skopiowany.';
+    } catch {
+      message.hidden = false;
+      message.textContent = publicListingUrl(listing);
+    }
+  });
   document.getElementById('edit-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;

@@ -124,6 +124,7 @@ Frontend jest w `frontend/public`.
 ### Publiczne strony
 
 - `/` - strona główna z listą ogłoszeń i formularzem dodawania
+- `/kategoria/:slug` - landing page kategorii z listą i filtrami
 - `/ogloszenie/:slug` - szczegóły ogłoszenia przez redirect z `/_redirects`
 - `/manage?token=...` - zarządzanie ogłoszeniem z linku zapisanego po dodaniu ogłoszenia
   - token `manage_listing` pozwala edytować i usuwać ogłoszenie
@@ -217,6 +218,25 @@ wrangler deploy --env prod
 wrangler pages deploy public --cwd frontend --project-name sprzedam-klodzko-dev --branch main --commit-dirty=true
 ```
 
+10. Po deployu uruchom smoke test produkcji:
+
+```bash
+npm run smoke:prod
+```
+
+Skrypt sprawdza bez tworzenia danych:
+
+- `/api/health`,
+- `/api/categories`,
+- `/api/listings`,
+- `/`,
+- `/admin/`,
+- `/kategoria/elektronika`,
+- `/sitemap.xml`,
+- blokadę `POST /api/listings` bez tokenu Turnstile.
+
+Jeżeli test `Public listing create is blocked without human verification` zacznie przechodzić jako publikacja zamiast błędu 400/429, traktuj to jako incydent bezpieczeństwa publicznego formularza.
+
 ## Local dev
 
 1. Zainstaluj zależności:
@@ -244,6 +264,50 @@ npm run dev
 ```
 
 5. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
+
+## Runbook operacyjny
+
+### Standardowy deploy po zmianach
+
+```bash
+npm run check
+node --check frontend/public/app.js
+node --check frontend/public/admin.js
+node --check frontend/public/manage.js
+npx wrangler@4.104.0 deploy --env prod --dry-run
+npx wrangler@4.104.0 deploy --env prod
+npx wrangler@4.104.0 pages deploy public --cwd frontend --project-name sprzedam-klodzko-dev --branch main --commit-dirty=true
+npm run smoke:prod
+```
+
+### Ręczne smoke testy przed publicznym ogłoszeniem startu
+
+- dodanie ogłoszenia z małym zdjęciem,
+- zapisanie linku weryfikacyjnego i linku zarządzania,
+- kliknięcie linku weryfikacyjnego,
+- moderacja w `/admin/`,
+- wejście w publiczny link ogłoszenia,
+- edycja z linku zarządzania i powrót do moderacji,
+- przedłużenie ogłoszenia,
+- zgłoszenie naruszenia,
+- obsługa zgłoszenia w panelu admina.
+
+### Reakcja na problem z publikacją ogłoszeń
+
+1. Sprawdź `npm run smoke:prod`.
+2. Sprawdź `wrangler tail sprzedam-klodzko-api-prod --format json`.
+3. Zweryfikuj, czy `TURNSTILE_SITE_KEY` i `TURNSTILE_SECRET_KEY` są ustawione dla prod.
+4. Sprawdź limit payloadu i rozmiar zdjęcia. Produkcyjny limit zdjęcia to `MAX_IMAGE_BYTES`.
+5. Jeżeli ogłoszenie zapisało się w D1, ale użytkownik dostał błąd, sprawdź logi `ntfy` i `event_logs`.
+
+### Backup D1
+
+Przed większymi zmianami lub kampanią promocyjną:
+
+```bash
+mkdir -p backups
+npx wrangler@4.104.0 d1 export sprzedam-klodzko-db --env prod --remote --output ./backups/sprzedam-klodzko-db-$(date +%Y%m%d-%H%M).sql
+```
 
 ## Sekrety i MFA
 

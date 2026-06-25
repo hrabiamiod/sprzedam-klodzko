@@ -3,7 +3,26 @@ const config = Object.assign({}, window.APP_CONFIG || {});
 const state = {
   categories: [],
   types: [],
-  listings: []
+  listings: [],
+  fixedCategory: ''
+};
+
+const CATEGORY_SLUGS = {
+  elektronika: 'Elektronika',
+  meble: 'Meble',
+  auto: 'Auto',
+  ubrania: 'Ubrania',
+  uslugi: 'Usługi',
+  inne: 'Inne'
+};
+
+const CATEGORY_DESCRIPTIONS = {
+  Elektronika: 'Telefony, komputery, RTV, drobna elektronika i akcesoria od osób z Kłodzka i okolic.',
+  Meble: 'Meble do domu, biura, ogrodu oraz wyposażenie wnętrz dostępne lokalnie.',
+  Auto: 'Części, akcesoria, auta, motocykle i lokalne usługi związane z motoryzacją.',
+  Ubrania: 'Odzież, obuwie, dodatki i rzeczy dziecięce wystawiane lokalnie.',
+  Usługi: 'Lokalne usługi, pomoc, naprawy, zlecenia i oferty specjalistów z okolicy.',
+  Inne: 'Pozostałe ogłoszenia lokalne, które nie pasują do głównych kategorii.'
 };
 
 function api(path) {
@@ -133,6 +152,22 @@ function listingCard(listing) {
   `;
 }
 
+function categorySlug(category) {
+  const entry = Object.entries(CATEGORY_SLUGS).find(([, value]) => value === category);
+  return entry ? entry[0] : encodeURIComponent(String(category).toLowerCase());
+}
+
+function renderCategoryLinks() {
+  const target = document.getElementById('category-links');
+  if (!target) return;
+  target.innerHTML = state.categories.map((category) => `
+    <a class="category-tile" href="/kategoria/${categorySlug(category)}">
+      <strong>${esc(category)}</strong>
+      <span>${esc(CATEGORY_DESCRIPTIONS[category] || 'Lokalne ogłoszenia w tej kategorii.')}</span>
+    </a>
+  `).join('');
+}
+
 function renderFilters() {
   const categorySelect = document.getElementById('filter-category');
   const typeSelect = document.getElementById('filter-type');
@@ -152,6 +187,7 @@ function renderFilters() {
   }
   const categoriesStat = document.getElementById('stat-categories');
   if (categoriesStat) categoriesStat.textContent = String(state.categories.length || 0);
+  renderCategoryLinks();
 }
 
 function updateStats(total) {
@@ -180,7 +216,8 @@ async function loadListings() {
   const category = document.getElementById('filter-category');
   const type = document.getElementById('filter-type');
   if (search?.value) params.set('q', search.value);
-  if (category?.value) params.set('category', category.value);
+  if (state.fixedCategory) params.set('category', state.fixedCategory);
+  else if (category?.value) params.set('category', category.value);
   if (type?.value) params.set('type', type.value);
   params.set('limit', '12');
   const payload = await fetchJson(`/listings?${params.toString()}`);
@@ -224,6 +261,52 @@ async function initIndex() {
   document.getElementById('listing-form')?.addEventListener('submit', submitListing);
   updateDescriptionCounter();
   setSiteName();
+}
+
+async function initCategoryPage() {
+  await loadSiteConfig();
+  const slug = new URLSearchParams(window.location.search).get('slug') || window.location.pathname.split('/').filter(Boolean).pop() || '';
+  const category = CATEGORY_SLUGS[decodeURIComponent(slug)] || '';
+  const root = document.getElementById('category-root');
+  if (!category || !root) {
+    if (root) root.innerHTML = '<div class="empty"><strong>Nie znaleziono kategorii.</strong><span>Wróć na stronę główną i wybierz kategorię z listy.</span></div>';
+    return;
+  }
+  state.fixedCategory = category;
+  const payload = await fetchJson('/categories');
+  state.categories = payload.categories || [];
+  state.types = payload.types || [];
+  document.title = `${category} - ogłoszenia lokalne Kłodzko`;
+  document.querySelector('meta[name="description"]')?.setAttribute('content', CATEGORY_DESCRIPTIONS[category] || `Ogłoszenia lokalne w kategorii ${category}.`);
+  document.getElementById('category-title').textContent = `${category} w Kłodzku`;
+  document.getElementById('category-description').textContent = CATEGORY_DESCRIPTIONS[category] || 'Lokalne ogłoszenia w tej kategorii.';
+  renderFilters();
+  const categorySelect = document.getElementById('filter-category');
+  if (categorySelect) {
+    categorySelect.value = category;
+    categorySelect.disabled = true;
+  }
+  await loadListings();
+  document.getElementById('apply-filters')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    loadListings().catch(showError);
+  });
+  document.querySelectorAll('[data-type-filter]').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('[data-type-filter]').forEach((node) => node.classList.remove('active'));
+      button.classList.add('active');
+      const type = button.getAttribute('data-type-filter') || '';
+      const typeSelect = document.getElementById('filter-type');
+      if (typeSelect) typeSelect.value = type;
+      loadListings().catch(showError);
+    });
+  });
+  document.getElementById('search')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      loadListings().catch(showError);
+    }
+  });
 }
 
 function updateDescriptionCounter() {
@@ -486,6 +569,8 @@ function restoreLastSubmission() {
 if (document.getElementById('listing-form')) {
   restoreLastSubmission();
   initIndex().catch(showError);
+} else if (document.getElementById('category-root')) {
+  initCategoryPage().catch(showError);
 } else if (document.getElementById('detail-root')) {
   initListingPage().catch(showError);
 }
