@@ -231,10 +231,16 @@ async function loadListings() {
   const search = document.getElementById('search');
   const category = document.getElementById('filter-category');
   const type = document.getElementById('filter-type');
+  const minPrice = document.getElementById('filter-min-price');
+  const maxPrice = document.getElementById('filter-max-price');
+  const sort = document.getElementById('filter-sort');
   if (search?.value) params.set('q', search.value);
   if (state.fixedCategory) params.set('category', state.fixedCategory);
   else if (category?.value) params.set('category', category.value);
   if (type?.value) params.set('type', type.value);
+  if (minPrice?.value) params.set('min_price', minPrice.value);
+  if (maxPrice?.value) params.set('max_price', maxPrice.value);
+  if (sort?.value) params.set('sort', sort.value);
   params.set('limit', '12');
   const payload = await fetchJson(`/listings?${params.toString()}`);
   state.listings = payload.items || [];
@@ -270,12 +276,12 @@ async function initIndex() {
       loadListings().catch(showError);
     });
   });
-  document.getElementById('search')?.addEventListener('keydown', (event) => {
+  document.querySelectorAll('#search, #filter-min-price, #filter-max-price').forEach((input) => input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       loadListings().catch(showError);
     }
-  });
+  }));
   document.querySelector('textarea[name="description"]')?.addEventListener('input', updateDescriptionCounter);
   document.querySelector('input[name="image"]')?.addEventListener('change', previewImage);
   document.getElementById('listing-form')?.addEventListener('submit', submitListing);
@@ -326,12 +332,12 @@ async function initCategoryPage() {
       loadListings().catch(showError);
     });
   });
-  document.getElementById('search')?.addEventListener('keydown', (event) => {
+  document.querySelectorAll('#search, #filter-min-price, #filter-max-price').forEach((input) => input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       loadListings().catch(showError);
     }
-  });
+  }));
 }
 
 function updateDescriptionCounter() {

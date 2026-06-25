@@ -312,10 +312,16 @@ export function buildAbsoluteUrl(baseUrl: string | undefined, path: string) {
 }
 
 export function parseListSearchParams(url: URL) {
+  const minPrice = url.searchParams.get('min_price');
+  const maxPrice = url.searchParams.get('max_price');
+  const sort = url.searchParams.get('sort') || 'newest';
   return {
     q: url.searchParams.get('q') || '',
     category: url.searchParams.get('category') || '',
     type: url.searchParams.get('type') || '',
+    minPriceCents: minPrice ? Math.max(0, Math.round(Number.parseFloat(minPrice) * 100)) : null,
+    maxPriceCents: maxPrice ? Math.max(0, Math.round(Number.parseFloat(maxPrice) * 100)) : null,
+    sort: ['newest', 'oldest', 'price_asc', 'price_desc'].includes(sort) ? sort : 'newest',
     page: Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1),
     limit: Math.min(50, Math.max(1, Number.parseInt(url.searchParams.get('limit') || '12', 10) || 12))
   };

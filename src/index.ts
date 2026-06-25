@@ -1103,7 +1103,7 @@ async function processExpiryAndReminders(env: Env) {
 
 async function handlePublicList(request: Request, env: Env) {
   const url = new URL(request.url);
-  const { q, category, type, page, limit } = parseListSearchParams(url);
+  const { q, category, type, minPriceCents, maxPriceCents, sort, page, limit } = parseListSearchParams(url);
   const offset = (page - 1) * limit;
   const where: string[] = [
     `status = 'approved'`,
@@ -1123,9 +1123,23 @@ async function handlePublicList(request: Request, env: Env) {
     where.push('(LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?))');
     binds.push(`%${q}%`, `%${q}%`);
   }
+  if (Number.isFinite(minPriceCents)) {
+    where.push('price_cents >= ?');
+    binds.push(minPriceCents);
+  }
+  if (Number.isFinite(maxPriceCents)) {
+    where.push('price_cents <= ?');
+    binds.push(maxPriceCents);
+  }
+  const orderBy = {
+    newest: 'approved_at DESC, created_at DESC',
+    oldest: 'approved_at ASC, created_at ASC',
+    price_asc: 'price_cents ASC, approved_at DESC',
+    price_desc: 'price_cents DESC, approved_at DESC'
+  }[sort] || 'approved_at DESC, created_at DESC';
   const total = await env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE ${where.join(' AND ')}`).bind(...binds).first<{ count: number }>();
   const rows = await env.DB.prepare(
-    `SELECT ${listingBaseSelect()} FROM listings WHERE ${where.join(' AND ')} ORDER BY approved_at DESC, created_at DESC LIMIT ? OFFSET ?`
+    `SELECT ${listingBaseSelect()} FROM listings WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
   )
     .bind(...binds, limit, offset)
     .all<ListingRow>();
@@ -1134,6 +1148,7 @@ async function handlePublicList(request: Request, env: Env) {
     ok: true,
     page,
     limit,
+    sort,
     total: total?.count || 0,
     items: (rows.results || []).map(listingToPublicJson)
   });

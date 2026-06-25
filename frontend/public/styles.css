@@ -154,7 +154,12 @@ button, input, textarea, select { font: inherit; }
   font-size: clamp(1.25rem, 2vw, 1.75rem);
   line-height: 1.15;
 }
-.filters-row, .form-grid {
+.filters-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) repeat(5, minmax(120px, 1fr)) minmax(110px, .8fr);
+  gap: 10px;
+}
+.form-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;

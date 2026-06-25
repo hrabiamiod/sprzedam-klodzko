@@ -59,6 +59,14 @@
           <input id="search" class="input" placeholder="Szukaj po tytule lub opisie" />
           <select id="filter-category" class="input"></select>
           <select id="filter-type" class="input"></select>
+          <input id="filter-min-price" class="input" inputmode="decimal" placeholder="Cena od" />
+          <input id="filter-max-price" class="input" inputmode="decimal" placeholder="Cena do" />
+          <select id="filter-sort" class="input">
+            <option value="newest">Najnowsze</option>
+            <option value="oldest">Najstarsze</option>
+            <option value="price_asc">Cena rosnąco</option>
+            <option value="price_desc">Cena malejąco</option>
+          </select>
           <button class="button primary" id="apply-filters">Filtruj</button>
         </div>
         <div class="quick-filters" aria-label="Szybkie filtry typów ogłoszeń">
