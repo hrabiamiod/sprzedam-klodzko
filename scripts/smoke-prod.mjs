@@ -47,6 +47,9 @@ await check('API listings', () => expectJson('/api/listings?limit=3', (payload) 
   return payload.items.every((item) => !('contact_email' in item) && !('contact_phone' in item) && !('contact_name' in item));
 }));
 await check('API listings filters', () => expectJson('/api/listings?limit=3&sort=price_asc&min_price=0&max_price=100000', (payload) => payload.ok === true && payload.sort === 'price_asc' && Array.isArray(payload.items)));
+await check('API listings pagination', () => expectJson('/api/listings?limit=2&page=1&q=test', (payload) => {
+  return payload.ok === true && payload.page === 1 && payload.limit === 2 && typeof payload.total === 'number' && Array.isArray(payload.items) && payload.items.length <= 2;
+}));
 await check('API listing contact is protected', async () => {
   const { response, body } = await fetchText('/api/listings?limit=1');
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${body.slice(0, 160)}`);
@@ -86,10 +89,10 @@ await check('Listing detail has server-rendered metadata', async () => {
     throw new Error('Listing page is missing JSON-LD');
   }
 });
-await check('Homepage', () => expectHtml('/', 'Sprzedam Kłodzko'));
+await check('Homepage', () => expectHtml('/', 'Pokaż więcej ogłoszeń'));
 await check('Admin login page', () => expectHtml('/admin/', 'Logowanie administratora'));
 await check('Manage page', () => expectHtml('/manage', 'manage-root'));
-await check('Category page', () => expectHtml('/kategoria/elektronika', 'category-root'));
+await check('Category page', () => expectHtml('/kategoria/elektronika', 'Pokaż więcej ogłoszeń'));
 await check('Sitemap', () => expectStatus('/sitemap.xml', 200, { redirect: 'manual' }));
 await check('Public listing create is blocked without human verification', async () => {
   const { response, body } = await fetchText('/api/listings', {

@@ -6,7 +6,11 @@ const state = {
   listings: [],
   featured: [],
   fixedCategory: '',
-  stats: null
+  stats: null,
+  listingPage: 1,
+  listingLimit: 12,
+  listingTotal: 0,
+  listingHasMore: false
 };
 
 const CATEGORY_SLUGS = {
@@ -341,34 +345,141 @@ function renderFeatured(items) {
   grid.innerHTML = items.map(listingCard).join('');
 }
 
-async function loadFeaturedListings() {
-  const payload = await fetchJson('/listings?featured=1&sort=newest&limit=3');
-  state.featured = payload.items || [];
-  renderFeatured(state.featured);
-}
-
-async function loadListings() {
-  const loadState = document.getElementById('load-state');
-  if (loadState) loadState.textContent = 'Ładowanie...';
-  const params = new URLSearchParams();
+function listingFilterSnapshot() {
   const search = document.getElementById('search');
   const category = document.getElementById('filter-category');
   const type = document.getElementById('filter-type');
   const minPrice = document.getElementById('filter-min-price');
   const maxPrice = document.getElementById('filter-max-price');
   const sort = document.getElementById('filter-sort');
-  if (search?.value) params.set('q', search.value);
-  if (state.fixedCategory) params.set('category', state.fixedCategory);
-  else if (category?.value) params.set('category', category.value);
-  if (type?.value) params.set('type', type.value);
-  if (minPrice?.value) params.set('min_price', minPrice.value);
-  if (maxPrice?.value) params.set('max_price', maxPrice.value);
-  if (sort?.value) params.set('sort', sort.value);
-  params.set('limit', '12');
+  return {
+    q: (search?.value || '').trim(),
+    category: state.fixedCategory || category?.value || '',
+    type: type?.value || '',
+    min_price: (minPrice?.value || '').trim(),
+    max_price: (maxPrice?.value || '').trim(),
+    sort: sort?.value || 'newest'
+  };
+}
+
+function listingParams(page = 1) {
+  const snapshot = listingFilterSnapshot();
+  const params = new URLSearchParams();
+  if (snapshot.q) params.set('q', snapshot.q);
+  if (snapshot.category) params.set('category', snapshot.category);
+  if (snapshot.type) params.set('type', snapshot.type);
+  if (snapshot.min_price) params.set('min_price', snapshot.min_price);
+  if (snapshot.max_price) params.set('max_price', snapshot.max_price);
+  if (snapshot.sort && snapshot.sort !== 'newest') params.set('sort', snapshot.sort);
+  params.set('page', String(page));
+  params.set('limit', String(state.listingLimit));
+  return params;
+}
+
+function restoreFiltersFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const search = document.getElementById('search');
+  const category = document.getElementById('filter-category');
+  const type = document.getElementById('filter-type');
+  const minPrice = document.getElementById('filter-min-price');
+  const maxPrice = document.getElementById('filter-max-price');
+  const sort = document.getElementById('filter-sort');
+  if (search && params.has('q')) search.value = params.get('q') || '';
+  if (!state.fixedCategory && category && params.has('category')) category.value = params.get('category') || '';
+  if (type && params.has('type')) type.value = params.get('type') || '';
+  if (minPrice && params.has('min_price')) minPrice.value = params.get('min_price') || '';
+  if (maxPrice && params.has('max_price')) maxPrice.value = params.get('max_price') || '';
+  if (sort && params.has('sort')) sort.value = params.get('sort') || 'newest';
+}
+
+function syncFiltersToUrl(page = 1) {
+  const params = listingParams(page);
+  params.delete('limit');
+  if (state.fixedCategory) params.delete('category');
+  if (page <= 1) params.delete('page');
+  const next = params.toString();
+  const nextUrl = `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash || ''}`;
+  window.history.replaceState({}, '', nextUrl);
+}
+
+function setQuickType(type = '') {
+  document.querySelectorAll('[data-type-filter]').forEach((node) => {
+    node.classList.toggle('active', (node.getAttribute('data-type-filter') || '') === type);
+  });
+}
+
+function renderActiveFilters() {
+  const target = document.getElementById('active-filters');
+  if (!target) return;
+  const snapshot = listingFilterSnapshot();
+  const filters = [];
+  if (snapshot.q) filters.push(`Szukasz: ${snapshot.q}`);
+  if (snapshot.category && !state.fixedCategory) filters.push(`Kategoria: ${snapshot.category}`);
+  if (snapshot.type) filters.push(`Typ: ${snapshot.type}`);
+  if (snapshot.min_price) filters.push(`Od: ${snapshot.min_price} zł`);
+  if (snapshot.max_price) filters.push(`Do: ${snapshot.max_price} zł`);
+  if (snapshot.sort !== 'newest') {
+    const label = {
+      oldest: 'Najstarsze',
+      price_asc: 'Cena rosnąco',
+      price_desc: 'Cena malejąco'
+    }[snapshot.sort] || snapshot.sort;
+    filters.push(`Sortowanie: ${label}`);
+  }
+  target.innerHTML = filters.length ? filters.map((label) => `<span class="filter-pill">${esc(label)}</span>`).join('') : '<span class="filter-pill muted">Brak aktywnych filtrów</span>';
+}
+
+function updateListControls() {
+  const loadMore = document.getElementById('load-more-listings');
+  const summary = document.getElementById('listing-result-summary');
+  if (loadMore) {
+    loadMore.hidden = !state.listingHasMore;
+    loadMore.disabled = false;
+  }
+  if (summary) {
+    const shown = state.listings.length;
+    summary.textContent = state.listingTotal ? `Pokazano ${shown} z ${state.listingTotal}` : 'Brak wyników';
+  }
+  renderActiveFilters();
+}
+
+function clearListingFilters() {
+  const search = document.getElementById('search');
+  const category = document.getElementById('filter-category');
+  const type = document.getElementById('filter-type');
+  const minPrice = document.getElementById('filter-min-price');
+  const maxPrice = document.getElementById('filter-max-price');
+  const sort = document.getElementById('filter-sort');
+  if (search) search.value = '';
+  if (category && !state.fixedCategory) category.value = '';
+  if (type) type.value = '';
+  if (minPrice) minPrice.value = '';
+  if (maxPrice) maxPrice.value = '';
+  if (sort) sort.value = 'newest';
+  setQuickType('');
+}
+
+async function loadFeaturedListings() {
+  const payload = await fetchJson('/listings?featured=1&sort=newest&limit=3');
+  state.featured = payload.items || [];
+  renderFeatured(state.featured);
+}
+
+async function loadListings({ append = false, page = 1 } = {}) {
+  const loadState = document.getElementById('load-state');
+  if (loadState) loadState.textContent = 'Ładowanie...';
+  const params = listingParams(page);
+  const loadMore = document.getElementById('load-more-listings');
+  if (append && loadMore) loadMore.disabled = true;
   const payload = await fetchJson(`/listings?${params.toString()}`);
-  state.listings = payload.items || [];
+  state.listingPage = payload.page || page;
+  state.listingTotal = payload.total || 0;
+  state.listings = append ? [...state.listings, ...(payload.items || [])] : payload.items || [];
+  state.listingHasMore = state.listings.length < state.listingTotal;
   renderListings(state.listings);
   updateStats(payload.total || 0);
+  syncFiltersToUrl(state.listingPage);
+  updateListControls();
   if (loadState) loadState.textContent = `${payload.total || 0} ogłoszeń`;
 }
 
@@ -382,6 +493,8 @@ async function initIndex() {
   state.types = payload.types || [];
   state.stats = statsPayload.ok ? statsPayload : null;
   renderFilters();
+  restoreFiltersFromUrl();
+  setQuickType(document.getElementById('filter-type')?.value || '');
   renderTurnstile('create-turnstile-slot', 'create-turnstile-token');
   await Promise.all([loadFeaturedListings(), loadListings()]);
 
@@ -398,6 +511,15 @@ async function initIndex() {
       if (typeSelect) typeSelect.value = type;
       loadListings().catch(showError);
     });
+  });
+  document.getElementById('reset-filters')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    clearListingFilters();
+    loadListings().catch(showError);
+  });
+  document.getElementById('load-more-listings')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    loadListings({ append: true, page: state.listingPage + 1 }).catch(showError);
   });
   document.querySelectorAll('#search, #filter-min-price, #filter-max-price').forEach((input) => input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -435,11 +557,13 @@ async function initCategoryPage() {
   document.getElementById('category-title').textContent = `${category} w Kłodzku`;
   document.getElementById('category-description').textContent = CATEGORY_DESCRIPTIONS[category] || 'Lokalne ogłoszenia w tej kategorii.';
   renderFilters();
+  restoreFiltersFromUrl();
   const categorySelect = document.getElementById('filter-category');
   if (categorySelect) {
     categorySelect.value = category;
     categorySelect.disabled = true;
   }
+  setQuickType(document.getElementById('filter-type')?.value || '');
   await loadListings();
   document.getElementById('apply-filters')?.addEventListener('click', (event) => {
     event.preventDefault();
@@ -454,6 +578,15 @@ async function initCategoryPage() {
       if (typeSelect) typeSelect.value = type;
       loadListings().catch(showError);
     });
+  });
+  document.getElementById('reset-filters')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    clearListingFilters();
+    loadListings().catch(showError);
+  });
+  document.getElementById('load-more-listings')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    loadListings({ append: true, page: state.listingPage + 1 }).catch(showError);
   });
   document.querySelectorAll('#search, #filter-min-price, #filter-max-price').forEach((input) => input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {

@@ -416,7 +416,45 @@ label span {
   background: var(--text);
   border-color: var(--text);
 }
+.filter-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid rgba(17, 124, 111, 0.24);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: rgba(17, 124, 111, 0.08);
+  font-size: 12px;
+  font-weight: 900;
+}
+.filter-pill.muted {
+  color: var(--muted);
+  background: #fff;
+  border-color: var(--line);
+}
 .listings-panel { min-height: 220px; }
+.load-more-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+.load-more-wrap .button[hidden] { display: none; }
 .category-links {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1143,6 +1181,8 @@ label span {
   .status-card { grid-template-columns: 1fr; }
   .detail-trust-grid, .detail-action-row { grid-template-columns: 1fr; }
   .owner-roadmap { grid-template-columns: 1fr; }
+  .filter-status { flex-direction: column; align-items: stretch; }
+  .active-filters { width: 100%; }
   .market-intro h1 { font-size: 2rem; }
   .market-toolbar, .publish-panel, .category-panel, .detail-wrap, .legal-card, .login-card, .admin-panel { padding: 14px; }
   .image-preview { grid-template-columns: 1fr; }

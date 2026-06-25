@@ -66,6 +66,7 @@
             <option value="price_desc">Cena malejąco</option>
           </select>
           <button class="button primary" id="apply-filters">Filtruj</button>
+          <button class="button ghost" id="reset-filters" type="button">Wyczyść</button>
         </div>
         <div class="quick-filters" aria-label="Szybkie filtry typów ogłoszeń">
           <button class="chip active" type="button" data-type-filter="">Wszystkie</button>
@@ -73,6 +74,10 @@
           <button class="chip" type="button" data-type-filter="kupię">Kupię</button>
           <button class="chip" type="button" data-type-filter="oddam">Oddam</button>
           <button class="chip" type="button" data-type-filter="szukam">Szukam</button>
+        </div>
+        <div class="filter-status">
+          <div class="active-filters" id="active-filters"></div>
+          <span id="listing-result-summary" class="status-note">Brak wyników</span>
         </div>
       </section>
 
@@ -82,6 +87,9 @@
           <strong>Brak ogłoszeń w tej kategorii.</strong>
           <span>Dodaj pierwsze ogłoszenie albo sprawdź inne typy ogłoszeń.</span>
           <a class="button primary" href="/#add">Dodaj ogłoszenie</a>
+        </div>
+        <div class="load-more-wrap">
+          <button class="button ghost" id="load-more-listings" type="button" hidden>Pokaż więcej ogłoszeń</button>
         </div>
       </section>
     </main>
