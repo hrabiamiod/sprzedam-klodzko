@@ -281,7 +281,15 @@ E2E_BASE_URL=http://127.0.0.1:8787 E2E_TURNSTILE_TOKEN=<ten-sam-token> npm run e
 
 Bypass Turnstile działa tylko dla `APP_ENV != prod` i tylko po podaniu zgodnego `E2E_TURNSTILE_BYPASS_TOKEN`. Produkcja ignoruje ten bypass nawet przy przypadkowo ustawionym sekrecie.
 
-6. Pełniejszy lokalny E2E właściciela ogłoszenia, z zasymulowaną publikacją w lokalnej D1, obejmuje też przedłużenie, edycję i powrót do moderacji:
+6. Najprostszy lokalny test krytycznych przepływów, taki sam jak w CI:
+
+```bash
+npm run e2e:local
+```
+
+Ta komenda ładuje lokalny schemat D1, startuje lokalnego Workera, uruchamia E2E właściciela ogłoszenia oraz E2E panelu administratora z MFA.
+
+7. Pełniejszy lokalny E2E właściciela ogłoszenia, z zasymulowaną publikacją w lokalnej D1, obejmuje też przedłużenie, edycję i powrót do moderacji:
 
 ```bash
 npx wrangler d1 execute sprzedam-klodzko-db-dev --env dev --local --file=./schema.sql
@@ -291,7 +299,7 @@ E2E_BASE_URL=http://127.0.0.1:8787 E2E_TURNSTILE_TOKEN=dev-bypass E2E_APPROVE_WI
 
 Tryb `E2E_APPROVE_WITH_WRANGLER=1` działa wyłącznie przez lokalne `wrangler d1 execute --local`. Nie dodaje żadnego testowego endpointu do API.
 
-7. Lokalny E2E panelu administratora sprawdza MFA/TOTP, sesję, dashboard, listę sesji i logout. Użyj testowych sekretów w `.dev.vars`:
+8. Lokalny E2E panelu administratora sprawdza MFA/TOTP, sesję, dashboard, listę sesji i logout. Użyj testowych sekretów w `.dev.vars`:
 
 ```bash
 ADMIN_USERNAME=admin-e2e
@@ -309,7 +317,7 @@ npx wrangler dev --env dev --local --port 8787
 E2E_BASE_URL=http://127.0.0.1:8787 npm run e2e:admin
 ```
 
-8. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
+9. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
 
 ## Runbook operacyjny
 
