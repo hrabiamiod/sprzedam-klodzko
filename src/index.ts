@@ -552,16 +552,32 @@ async function consumeToken(env: Env, token: string, purpose: TokenRow['purpose'
   return row;
 }
 
-async function queueModerationJob(env: Env, listingId: string, jobType: 'listing' | 'report' | 'reminder' | 'expiry', payload: Record<string, unknown>, reportId?: string | null) {
+async function queueModerationJob(
+  env: Env,
+  listingId: string,
+  jobType: 'listing' | 'report' | 'reminder' | 'expiry',
+  payload: Record<string, unknown>,
+  reportId?: string | null,
+  jobId = crypto.randomUUID()
+) {
   const now = nowIso();
-  const id = crypto.randomUUID();
   await env.DB.prepare(
     `INSERT INTO moderation_jobs (id, listing_id, report_id, job_type, status, attempts, run_after, payload_json, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`
   )
-    .bind(id, listingId, reportId || null, jobType, now, JSON.stringify(payload), now, now)
+    .bind(jobId, listingId, reportId || null, jobType, now, JSON.stringify(payload), now, now)
     .run();
-  return id;
+  return jobId;
+}
+
+function toAsciiHeaderValue(value: string, fallback: string) {
+  const normalized = value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim()
+    .slice(0, 160);
+  return normalized || fallback;
 }
 
 async function notifyNtfy(env: Env, title: string, message: string) {
@@ -569,13 +585,27 @@ async function notifyNtfy(env: Env, title: string, message: string) {
   const response = await fetch(env.NTFY_TOPIC_URL, {
     method: 'POST',
     headers: {
-      title,
+      title: toAsciiHeaderValue(title, 'Sprzedam Klodzko'),
       priority: '3'
     },
     body: message
   });
   if (!response.ok) {
     throw new Error(`ntfy error ${response.status}: ${await response.text()}`);
+  }
+}
+
+async function safeNotifyNtfy(env: Env, title: string, message: string, context: Record<string, unknown> = {}) {
+  try {
+    await notifyNtfy(env, title, message);
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'warn',
+      message: 'ntfy notification failed',
+      title,
+      context,
+      error: String(error)
+    }));
   }
 }
 
@@ -1041,7 +1071,12 @@ async function markTokenUsed(env: Env, tokenHash: string) {
 }
 
 async function sendNtFYNewListing(env: Env, listing: ListingRow) {
-  await notifyNtfy(env, `Nowe ogłoszenie: ${listing.title}`, `${listing.type} / ${listing.category} / ${formatMoney(listing.price_cents, listing.currency)}`);
+  await safeNotifyNtfy(
+    env,
+    `Nowe ogłoszenie: ${listing.title}`,
+    `${listing.type} / ${listing.category} / ${formatMoney(listing.price_cents, listing.currency)}`,
+    { listing_id: listing.id }
+  );
 }
 
 async function processModerationJobs(env: Env) {
@@ -1152,7 +1187,12 @@ async function processModerationJobs(env: Env) {
         await env.DB.prepare(`UPDATE listings SET reminder_sent_at = ?, updated_at = ? WHERE id = ?`)
           .bind(nowIso(), nowIso(), listing.id)
           .run();
-        await notifyNtfy(env, 'Przypomnienie o wygaśnięciu ogłoszenia', `${listing.title} wygaśnie wkrótce. Sprawdź panel zarządzania lub panel admina.`);
+        await safeNotifyNtfy(
+          env,
+          'Przypomnienie o wygaśnięciu ogłoszenia',
+          `${listing.title} wygaśnie wkrótce. Sprawdź panel zarządzania lub panel admina.`,
+          { listing_id: listing.id, job_id: job.id }
+        );
       }
 
       if (job.job_type === 'expiry') {
@@ -1846,18 +1886,19 @@ async function handleReportListing(request: Request, env: Env, listingId: string
   const turnstileToken = normalizeString(body.turnstile_token || body['cf-turnstile-response']);
   await verifyTurnstileIfConfigured(env, turnstileToken, clientIp);
   const reportId = crypto.randomUUID();
-  const jobId = await queueModerationJob(env, listing.id, 'report', { reason, details }, reportId);
+  const jobId = crypto.randomUUID();
   await env.DB.prepare(
     `INSERT INTO listing_reports (id, listing_id, reporter_email, reporter_ip, reason, details, status, moderation_job_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
   )
     .bind(reportId, listing.id, normalizeEmail(normalizeString(body.reporter_email)) || null, getClientIp(request), reason, details || null, jobId, nowIso())
     .run();
+  await queueModerationJob(env, listing.id, 'report', { reason, details }, reportId, jobId);
   await env.DB.prepare(`UPDATE listings SET report_count = report_count + 1, report_status = 'pending', updated_at = ? WHERE id = ?`)
     .bind(nowIso(), listing.id)
     .run();
   await logEvent(env, { eventType: 'listing.reported', actorType: 'visitor', listingId: listing.id, reportId, details: { reason } });
-  await notifyNtfy(env, 'Nowe zgłoszenie ogłoszenia', `${listing.title} - ${reason}`);
+  await safeNotifyNtfy(env, 'Nowe zgłoszenie ogłoszenia', `${listing.title} - ${reason}`, { listing_id: listing.id, report_id: reportId });
   return json({ ok: true, message: 'Zgłoszenie zostało przyjęte do analizy.' }, { status: 202 });
 }
 

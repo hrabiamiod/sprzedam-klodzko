@@ -11,7 +11,8 @@ const devEnv = {
   ADMIN_PASSWORD: 'admin-e2e-password',
   ADMIN_TOTP_SECRET: 'JBSWY3DPEHPK3PXP',
   ADMIN_SESSION_SECRET: 'local-admin-session-secret',
-  ADMIN_ALLOWED_IPS: '127.0.0.1,::1'
+  ADMIN_ALLOWED_IPS: '127.0.0.1,::1',
+  NTFY_TOPIC_URL: 'http://127.0.0.1:9/ntfy-e2e'
 };
 
 function run(command, args, options = {}) {
@@ -34,6 +35,7 @@ function writeTemporaryDevVars() {
     `ADMIN_TOTP_SECRET=${devEnv.ADMIN_TOTP_SECRET}`,
     `ADMIN_SESSION_SECRET=${devEnv.ADMIN_SESSION_SECRET}`,
     `ADMIN_ALLOWED_IPS=${devEnv.ADMIN_ALLOWED_IPS}`,
+    `NTFY_TOPIC_URL=${devEnv.NTFY_TOPIC_URL}`,
     ''
   ].join('\n'));
   return () => {

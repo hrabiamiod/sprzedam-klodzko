@@ -130,6 +130,23 @@ if (approveWithWrangler) {
   assert(extended.ok === true && extended.expires_at, 'Extend did not return expires_at');
   console.log('OK extended listing');
 
+  const reported = await requestJson(`/api/listings/${encodeURIComponent(created.listing.id)}/report`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      reason: 'spam',
+      details: 'E2E zgłoszenie naruszenia po lokalnej publikacji.',
+      reporter_email: `reporter-${suffix}@example.invalid`,
+      turnstile_token: turnstileToken
+    })
+  });
+  assert(reported.ok === true, 'Report did not return ok=true');
+  console.log('OK reported listing');
+
+  const afterReport = await requestJson(`/api/manage/${encodeURIComponent(manageToken)}`);
+  assert(Number(afterReport.listing?.report_count || 0) >= 1, 'Report count was not incremented');
+  console.log('OK report count incremented');
+
   const editedTitle = `${createPayload.title} edited`;
   const edited = await requestJson(`/api/manage/${encodeURIComponent(manageToken)}`, {
     method: 'PUT',
