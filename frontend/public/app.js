@@ -111,6 +111,10 @@ function money(cents, currency = 'PLN') {
   }).format((cents || 0) / 100);
 }
 
+function plainText(value = '', maxLength = 160) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
 function esc(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -118,6 +122,38 @@ function esc(value = '') {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function setMetaAttribute(selector, attribute, value) {
+  let node = document.querySelector(selector);
+  if (!node) {
+    node = document.createElement('meta');
+    const match = selector.match(/\[(name|property)="([^"]+)"\]/);
+    if (match) node.setAttribute(match[1], match[2]);
+    document.head.appendChild(node);
+  }
+  node.setAttribute(attribute, value);
+}
+
+function setCanonical(url) {
+  let node = document.querySelector('link[rel="canonical"]');
+  if (!node) {
+    node = document.createElement('link');
+    node.setAttribute('rel', 'canonical');
+    document.head.appendChild(node);
+  }
+  node.setAttribute('href', url);
+}
+
+function setJsonLd(id, data) {
+  let node = document.getElementById(id);
+  if (!node) {
+    node = document.createElement('script');
+    node.type = 'application/ld+json';
+    node.id = id;
+    document.head.appendChild(node);
+  }
+  node.textContent = JSON.stringify(data);
 }
 
 function renderSubmissionMessage(payload) {
@@ -163,6 +199,40 @@ function renderSubmissionMessage(payload) {
       </div>
     </div>
   `;
+}
+
+function updateListingMeta(listing, publicUrl, imageUrl) {
+  const siteName = config.siteName || 'Sprzedam Kłodzko';
+  const title = `${listing.title} - ${siteName}`;
+  const description = plainText(listing.description, 180);
+  document.title = title;
+  setCanonical(publicUrl);
+  setMetaAttribute('meta[name="description"]', 'content', description);
+  setMetaAttribute('meta[property="og:title"]', 'content', title);
+  setMetaAttribute('meta[property="og:description"]', 'content', description);
+  setMetaAttribute('meta[property="og:url"]', 'content', publicUrl);
+  setMetaAttribute('meta[property="og:type"]', 'content', 'article');
+  setMetaAttribute('meta[name="twitter:card"]', 'content', imageUrl ? 'summary_large_image' : 'summary');
+  if (imageUrl) {
+    setMetaAttribute('meta[property="og:image"]', 'content', imageUrl);
+  }
+  setJsonLd('listing-jsonld', {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: listing.title,
+    description,
+    image: imageUrl || undefined,
+    category: listing.category,
+    offers: {
+      '@type': 'Offer',
+      price: ((listing.price_cents || 0) / 100).toFixed(2),
+      priceCurrency: listing.currency || 'PLN',
+      availability: 'https://schema.org/InStock',
+      url: publicUrl,
+      areaServed: listing.city || 'Kłodzko',
+      validThrough: listing.expires_at || undefined
+    }
+  });
 }
 
 function listingCard(listing) {
@@ -590,10 +660,9 @@ async function initListingPage() {
   }
   const payload = await fetchJson(`/listings/${encodeURIComponent(slug)}`);
   const listing = payload.item;
-  document.title = `${listing.title} - ${config.siteName || 'Sprzedam Kłodzko'}`;
-  const description = document.querySelector('meta[name="description"]');
-  if (description) description.setAttribute('content', listing.description.slice(0, 160));
   const image = listing.image_base64 ? `data:${listing.image_mime || 'image/jpeg'};base64,${listing.image_base64}` : '';
+  const publicUrl = `${window.location.origin}/ogloszenie/${encodeURIComponent(listing.slug)}`;
+  updateListingMeta(listing, publicUrl, image);
   root.innerHTML = `
     <div class="detail-hero">
       <div class="detail-media">
@@ -624,6 +693,17 @@ async function initListingPage() {
       <span class="eyebrow">Opis</span>
       <p>${esc(listing.description).replace(/\n/g, '<br />')}</p>
     </div>
+    <section class="safety-card">
+      <div>
+        <span class="eyebrow">Bezpieczny kontakt</span>
+        <h2>Sprawdź ofertę lokalnie przed płatnością.</h2>
+      </div>
+      <ul>
+        <li>Nie wysyłaj zaliczek bez pewności, że znasz sprzedającego.</li>
+        <li>Umawiaj odbiór w bezpiecznym, publicznym miejscu.</li>
+        <li>Zgłoś ogłoszenie, jeśli dane kontaktowe albo treść wyglądają podejrzanie.</li>
+      </ul>
+    </section>
     <div class="detail-footer">
       <a class="button ghost" href="/">Wróć do listy</a>
       <div class="row-actions">
@@ -652,12 +732,16 @@ async function initListingPage() {
   `;
   document.getElementById('share-button')?.addEventListener('click', async () => {
     const message = document.getElementById('report-message');
-    const url = window.location.href;
+    const url = publicUrl;
     try {
-      await navigator.clipboard.writeText(url);
+      if (navigator.share) {
+        await navigator.share({ title: listing.title, text: plainText(listing.description, 120), url });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
       if (message) {
         message.hidden = false;
-        message.textContent = 'Link do ogłoszenia został skopiowany.';
+        message.textContent = navigator.share ? 'Udostępnianie zakończone.' : 'Link do ogłoszenia został skopiowany.';
       }
     } catch {
       if (message) {

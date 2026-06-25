@@ -313,6 +313,30 @@ label span {
   color: var(--muted);
   line-height: 1.55;
 }
+.safety-card {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(260px, 1.1fr);
+  gap: 16px;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid rgba(36, 87, 166, 0.18);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(135deg, rgba(36, 87, 166, 0.10), rgba(17, 124, 111, 0.08)),
+    rgba(255,255,255,0.7);
+}
+.safety-card h2 {
+  margin: 6px 0 0;
+  font-size: clamp(1.15rem, 2vw, 1.55rem);
+}
+.safety-card ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+  line-height: 1.45;
+}
 .listing-footer, .detail-footer, .submission-links, .submission-meta, .card-top, .detail-meta, .pill-row {
   display: flex;
   flex-wrap: wrap;
@@ -615,6 +639,7 @@ label span {
   .shell { width: min(100vw - 20px, 1180px); }
   .header-inner, .site-footer, .section-head { flex-direction: column; align-items: stretch; }
   .market-stats, .metric-grid, .listing-grid, .category-links, .filters-row, .form-grid { grid-template-columns: 1fr; }
+  .safety-card { grid-template-columns: 1fr; }
   .status-card { grid-template-columns: 1fr; }
   .market-intro h1 { font-size: 2rem; }
   .market-toolbar, .publish-panel, .category-panel, .detail-wrap, .legal-card, .login-card, .admin-panel { padding: 14px; }
