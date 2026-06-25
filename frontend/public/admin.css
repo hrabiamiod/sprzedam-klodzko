@@ -100,10 +100,32 @@
   overflow-x: auto;
 }
 
+.security-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
   min-width: 860px;
+}
+
+.compact-table {
+  min-width: 0;
+}
+
+.compact-table th,
+.compact-table td {
+  padding: 10px 8px;
+  font-size: 13px;
+}
+
+.compact-table code {
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 th, td {

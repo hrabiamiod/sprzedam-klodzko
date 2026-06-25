@@ -1963,6 +1963,82 @@ async function handleAdminUsers(request: Request, env: Env) {
   return json({ ok: true, items: rows.results || [] });
 }
 
+async function handleAdminSecurity(request: Request, env: Env) {
+  const session = await requireAdminSession(request, env);
+  const since24h = hoursFromNow(-24);
+  const since7d = daysFromNow(-7);
+  const [
+    contact24h,
+    contactListings24h,
+    topContactListings,
+    recentContactReveals,
+    throttleCounters,
+    hotThrottleCounters
+  ] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM event_logs
+       WHERE event_type = 'listing.contact.revealed' AND created_at >= ?`
+    ).bind(since24h).first<{ count: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(DISTINCT listing_id) AS count
+       FROM event_logs
+       WHERE event_type = 'listing.contact.revealed' AND created_at >= ? AND listing_id IS NOT NULL`
+    ).bind(since24h).first<{ count: number }>(),
+    env.DB.prepare(
+      `SELECT e.listing_id, l.title, l.slug, l.status, COUNT(*) AS reveals, MAX(e.created_at) AS last_revealed_at
+       FROM event_logs e
+       LEFT JOIN listings l ON l.id = e.listing_id
+       WHERE e.event_type = 'listing.contact.revealed' AND e.created_at >= ?
+       GROUP BY e.listing_id, l.title, l.slug, l.status
+       ORDER BY reveals DESC, last_revealed_at DESC
+       LIMIT 10`
+    ).bind(since24h).all(),
+    env.DB.prepare(
+      `SELECT e.id, e.listing_id, e.actor_type, e.actor_id, e.details_json, e.created_at,
+              l.title, l.slug, l.status
+       FROM event_logs e
+       LEFT JOIN listings l ON l.id = e.listing_id
+       WHERE e.event_type = 'listing.contact.revealed'
+       ORDER BY e.created_at DESC
+       LIMIT 50`
+    ).all(),
+    env.DB.prepare(
+      `SELECT scope, throttle_key, window_start, request_count, last_seen_at, created_at
+       FROM request_throttle_counters
+       WHERE last_seen_at >= ?
+       ORDER BY last_seen_at DESC
+       LIMIT 100`
+    ).bind(since7d).all(),
+    env.DB.prepare(
+      `SELECT scope, throttle_key, window_start, request_count, last_seen_at, created_at
+       FROM request_throttle_counters
+       WHERE last_seen_at >= ?
+       ORDER BY request_count DESC, last_seen_at DESC
+       LIMIT 25`
+    ).bind(since24h).all()
+  ]);
+  await logAdmin(env, { adminUsername: session.username, action: 'security.view', ipAddress: getClientIp(request) });
+  return json({
+    ok: true,
+    generated_at: nowIso(),
+    windows: {
+      contact_reveals_since: since24h,
+      throttle_counters_since: since7d
+    },
+    summary: {
+      contact_reveals_24h: contact24h?.count || 0,
+      contact_revealed_listings_24h: contactListings24h?.count || 0,
+      throttle_counters_7d: (throttleCounters.results || []).length,
+      hot_throttle_counters_24h: (hotThrottleCounters.results || []).length
+    },
+    top_contact_listings_24h: topContactListings.results || [],
+    recent_contact_reveals: recentContactReveals.results || [],
+    throttle_counters: throttleCounters.results || [],
+    hot_throttle_counters_24h: hotThrottleCounters.results || []
+  });
+}
+
 async function handleAdminSystem(request: Request, env: Env) {
   const session = await requireAdminSession(request, env);
   const cfgValue = cfg(env);
@@ -2289,6 +2365,9 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     }
     if (pathname === '/api/admin/users' && request.method === 'GET') {
       return maybeWithCors(request, await handleAdminUsers(request, env));
+    }
+    if (pathname === '/api/admin/security' && request.method === 'GET') {
+      return maybeWithCors(request, await handleAdminSecurity(request, env));
     }
     if (pathname === '/api/admin/system' && request.method === 'GET') {
       return maybeWithCors(request, await handleAdminSystem(request, env));

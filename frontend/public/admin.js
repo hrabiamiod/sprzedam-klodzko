@@ -179,6 +179,137 @@ function renderSystem(payload) {
   `;
 }
 
+function shortKey(value = '') {
+  const textValue = String(value);
+  if (textValue.length <= 28) return textValue;
+  return `${textValue.slice(0, 10)}...${textValue.slice(-10)}`;
+}
+
+function renderSecurity(payload) {
+  const summary = payload.summary || {};
+  const topListings = payload.top_contact_listings_24h || [];
+  const recentReveals = payload.recent_contact_reveals || [];
+  const hotCounters = payload.hot_throttle_counters_24h || [];
+  const allCounters = payload.throttle_counters || [];
+  return `
+    <div class="security-summary">
+      ${metricCard('Ujawnienia kontaktu / 24h', summary.contact_reveals_24h || 0)}
+      ${metricCard('Ogłoszenia z kontaktem / 24h', summary.contact_revealed_listings_24h || 0)}
+      ${metricCard('Aktywne liczniki / 7 dni', summary.throttle_counters_7d || 0)}
+      ${metricCard('Najgorętsze liczniki / 24h', summary.hot_throttle_counters_24h || 0)}
+    </div>
+    <div class="system-split">
+      <article class="system-box">
+        <span class="eyebrow">Najczęściej odsłaniane kontakty / 24h</span>
+        ${topListings.length ? `
+          <table class="compact-table">
+            <thead>
+              <tr>
+                <th>Ogłoszenie</th>
+                <th>Odsłony</th>
+                <th>Ostatnio</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${topListings.map((item) => `
+                <tr>
+                  <td>
+                    ${item.slug ? `<a class="muted-link" href="/ogloszenie/${encodeURIComponent(item.slug)}" target="_blank" rel="noopener">${esc(item.title || item.slug)}</a>` : esc(item.listing_id || 'brak')}
+                    <br /><span class="status-note">${esc(statusLabel(item.status))}</span>
+                  </td>
+                  <td><span class="tag ${Number(item.reveals || 0) > 10 ? 'warn' : ''}">${esc(item.reveals || 0)}</span></td>
+                  <td>${esc(formatDate(item.last_revealed_at))}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<div class="empty"><strong>Brak odsłon kontaktu w ostatnich 24h.</strong><span>To normalne przed ruchem produkcyjnym.</span></div>'}
+      </article>
+      <article class="system-box">
+        <span class="eyebrow">Najwyższe liczniki throttlingu / 24h</span>
+        ${hotCounters.length ? `
+          <table class="compact-table">
+            <thead>
+              <tr>
+                <th>Zakres</th>
+                <th>Klucz</th>
+                <th>Próby</th>
+                <th>Ostatnio</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${hotCounters.map((item) => `
+                <tr>
+                  <td>${esc(item.scope)}</td>
+                  <td><code>${esc(shortKey(item.throttle_key))}</code></td>
+                  <td><span class="tag ${Number(item.request_count || 0) > 20 ? 'bad' : Number(item.request_count || 0) > 5 ? 'warn' : ''}">${esc(item.request_count || 0)}</span></td>
+                  <td>${esc(formatDate(item.last_seen_at))}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<div class="empty"><strong>Brak aktywnych liczników z ostatnich 24h.</strong><span>Nie wykryto intensywnego ruchu.</span></div>'}
+      </article>
+    </div>
+    <div class="system-split">
+      <article class="system-box">
+        <span class="eyebrow">Ostatnie odsłony kontaktu</span>
+        ${recentReveals.length ? `
+          <table class="compact-table">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Ogłoszenie</th>
+                <th>Warunek</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${recentReveals.slice(0, 25).map((item) => `
+                <tr>
+                  <td>${esc(formatDate(item.created_at))}</td>
+                  <td>
+                    ${item.slug ? `<a class="muted-link" href="/ogloszenie/${encodeURIComponent(item.slug)}" target="_blank" rel="noopener">${esc(item.title || item.slug)}</a>` : esc(item.listing_id || '')}
+                    <br /><span class="status-note">${esc(statusLabel(item.status))}</span>
+                  </td>
+                  <td>${esc(item.details_json || '')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<div class="empty"><strong>Brak ostatnich odsłon kontaktu.</strong><span>Lista pojawi się po pierwszych kliknięciach użytkowników.</span></div>'}
+      </article>
+      <article class="system-box">
+        <span class="eyebrow">Liczniki throttlingu / 7 dni</span>
+        ${allCounters.length ? `
+          <table class="compact-table">
+            <thead>
+              <tr>
+                <th>Zakres</th>
+                <th>Klucz</th>
+                <th>Okno</th>
+                <th>Próby</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allCounters.slice(0, 50).map((item) => `
+                <tr>
+                  <td>${esc(item.scope)}</td>
+                  <td><code>${esc(shortKey(item.throttle_key))}</code></td>
+                  <td>${esc(formatDate(item.window_start))}</td>
+                  <td><span class="tag">${esc(item.request_count || 0)}</span></td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<div class="empty"><strong>Brak liczników throttlingu.</strong><span>Nie było prób wymagających limitowania.</span></div>'}
+      </article>
+    </div>
+    <div class="status-note">
+      Wygenerowano: ${esc(formatDate(payload.generated_at))}. Liczniki zawierają techniczne klucze limitów, dlatego nie pokazujemy ich publicznie.
+    </div>
+  `;
+}
+
 function updateBulkBar() {
   const bar = document.getElementById('bulk-bar');
   const count = document.getElementById('bulk-count');
@@ -507,6 +638,11 @@ async function loadUsers() {
   document.getElementById('admin-users').innerHTML = userTable(payload.items || []);
 }
 
+async function loadSecurity() {
+  const payload = await fetchJson('/admin/security');
+  document.getElementById('admin-security').innerHTML = renderSecurity(payload);
+}
+
 async function loadLogs() {
   const payload = await fetchJson('/admin/logs');
   document.getElementById('admin-logs').innerHTML = logTable(payload.items || []);
@@ -593,7 +729,7 @@ async function bootstrap(skipLoginCheck = false) {
       loginCard.hidden = true;
       dashboard.hidden = false;
       logoutButton.hidden = false;
-      await Promise.all([loadDashboard(), loadSystem(), loadListings(), loadReports(), loadUsers(), loadSessions(), loadLogs()]);
+      await Promise.all([loadDashboard(), loadSystem(), loadListings(), loadReports(), loadUsers(), loadSecurity(), loadSessions(), loadLogs()]);
     }
   } catch {
     loginCard.hidden = false;
@@ -606,6 +742,7 @@ document.getElementById('login-form')?.addEventListener('submit', login);
 document.getElementById('logout-button')?.addEventListener('click', logout);
 document.getElementById('refresh-admin')?.addEventListener('click', () => bootstrap(true).catch((error) => alert(error.message || String(error))));
 document.getElementById('refresh-system')?.addEventListener('click', () => loadSystem().catch((error) => alert(error.message || String(error))));
+document.getElementById('refresh-security')?.addEventListener('click', () => loadSecurity().catch((error) => alert(error.message || String(error))));
 document.getElementById('refresh-sessions')?.addEventListener('click', () => loadSessions().catch((error) => alert(error.message || String(error))));
 document.querySelector('[name="mfa"]')?.addEventListener('input', (event) => {
   event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 6);
