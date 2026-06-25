@@ -1,4 +1,24 @@
 const config = Object.assign({}, window.APP_CONFIG || {});
+const adminState = {
+  selectedListings: new Set(),
+  currentStatus: '',
+  me: null
+};
+
+const STATUS_LABELS = {
+  pending: 'Oczekuje',
+  approved: 'Aktywne',
+  rejected: 'Odrzucone',
+  expired: 'Wygasłe',
+  archived: 'Archiwum'
+};
+
+const ACTION_LABELS = {
+  approve: 'Zatwierdź',
+  reject: 'Odrzuć',
+  archive: 'Archiwizuj',
+  delete: 'Usuń'
+};
 
 function api(path) {
   return `${config.apiBase || '/api'}${path}`;
@@ -51,11 +71,62 @@ function metricCard(label, value) {
   return `<div class="metric"><strong>${esc(value)}</strong><span>${esc(label)}</span></div>`;
 }
 
+function formatDate(value) {
+  if (!value) return 'brak';
+  return new Date(value).toLocaleString('pl-PL');
+}
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status || 'nieznany';
+}
+
+function statusClass(status) {
+  if (status === 'approved') return 'ok';
+  if (status === 'pending') return 'warn';
+  if (status === 'rejected' || status === 'archived') return 'bad';
+  return '';
+}
+
+function moderationHint(item) {
+  const parts = [];
+  if (item.moderation_reason) parts.push(item.moderation_reason);
+  if (Number.isFinite(Number(item.report_count)) && Number(item.report_count) > 0) parts.push(`${item.report_count} zgłoszeń`);
+  if (item.expires_at) parts.push(`wygasa: ${formatDate(item.expires_at)}`);
+  return parts.join(' · ');
+}
+
+function renderEmpty(message) {
+  return `<div class="empty"><strong>${esc(message)}</strong><span>Odśwież panel albo zmień filtr statusu.</span></div>`;
+}
+
+function renderSession(user) {
+  const target = document.getElementById('session-card');
+  if (!target || !user) return;
+  target.innerHTML = `
+    <span class="tag ok">MFA aktywne</span>
+    <strong>${esc(user.username)}</strong>
+    <span>IP sesji: ${esc(user.ip_address || 'nieznane')}</span>
+    <span>MFA: ${esc(formatDate(user.mfa_verified_at))}</span>
+    <span>Sesja do: ${esc(formatDate(user.expires_at))}</span>
+  `;
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  const count = document.getElementById('bulk-count');
+  if (!bar || !count) return;
+  const selected = adminState.selectedListings.size;
+  bar.hidden = selected === 0;
+  count.textContent = `${selected} zaznaczonych`;
+}
+
 function listingTable(items) {
+  if (!items.length) return renderEmpty('Brak ogłoszeń w tym widoku.');
   return `
     <table>
       <thead>
         <tr>
+          <th><input type="checkbox" data-select-all-listings /></th>
           <th>Tytuł</th>
           <th>Status</th>
           <th>Kategoria</th>
@@ -68,18 +139,23 @@ function listingTable(items) {
       <tbody>
         ${items.map((item) => `
           <tr>
-            <td><strong>${esc(item.title)}</strong><br /><span class="status-note">${esc(item.slug)}</span></td>
-            <td><span class="tag ${item.status === 'approved' ? 'ok' : item.status === 'rejected' ? 'bad' : ''}">${esc(item.status)}</span></td>
+            <td><input type="checkbox" data-select-listing="${esc(item.id)}" ${adminState.selectedListings.has(item.id) ? 'checked' : ''} /></td>
+            <td>
+              <strong>${esc(item.title)}</strong>
+              <br /><a class="muted-link" href="/listing.html?slug=${encodeURIComponent(item.slug)}" target="_blank" rel="noopener">${esc(item.slug)}</a>
+              <br /><span class="status-note">${esc(moderationHint(item))}</span>
+            </td>
+            <td><span class="tag ${statusClass(item.status)}">${esc(statusLabel(item.status))}</span></td>
             <td>${esc(item.category)}</td>
             <td>${esc(item.type)}</td>
             <td>${esc(money(item.price_cents, item.currency))}</td>
             <td>${esc(item.contact_email || '')}<br />${esc(item.contact_phone || '')}</td>
             <td>
               <div class="row-actions">
-                <button class="button ghost small" data-listing-action="approve" data-id="${esc(item.id)}">Approve</button>
-                <button class="button ghost small" data-listing-action="reject" data-id="${esc(item.id)}">Reject</button>
-                <button class="button ghost small" data-listing-action="archive" data-id="${esc(item.id)}">Archive</button>
-                <button class="button ghost small" data-listing-action="delete" data-id="${esc(item.id)}">Delete</button>
+                <button class="button ghost small" data-listing-action="approve" data-id="${esc(item.id)}">${ACTION_LABELS.approve}</button>
+                <button class="button ghost small" data-listing-action="reject" data-id="${esc(item.id)}">${ACTION_LABELS.reject}</button>
+                <button class="button ghost small" data-listing-action="archive" data-id="${esc(item.id)}">${ACTION_LABELS.archive}</button>
+                <button class="button ghost small danger-action" data-listing-action="delete" data-id="${esc(item.id)}">${ACTION_LABELS.delete}</button>
               </div>
             </td>
           </tr>
@@ -90,6 +166,7 @@ function listingTable(items) {
 }
 
 function reportTable(items) {
+  if (!items.length) return renderEmpty('Brak zgłoszeń do obsługi.');
   return `
     <table>
       <thead>
@@ -104,14 +181,14 @@ function reportTable(items) {
       <tbody>
         ${items.map((item) => `
           <tr>
-            <td>${esc(new Date(item.created_at).toLocaleString('pl-PL'))}</td>
+            <td>${esc(formatDate(item.created_at))}</td>
             <td>${esc(item.title)}<br /><span class="status-note">${esc(item.slug)}</span></td>
             <td>${esc(item.reason)}</td>
-            <td><span class="tag">${esc(item.status)}</span></td>
+            <td><span class="tag ${item.status === 'pending' ? 'warn' : 'ok'}">${esc(item.status === 'pending' ? 'Oczekuje' : item.status)}</span></td>
             <td>
               <div class="row-actions">
-                <button class="button ghost small" data-report-action="resolve" data-id="${esc(item.id)}">Resolve</button>
-                <button class="button ghost small" data-report-action="dismiss" data-id="${esc(item.id)}">Dismiss</button>
+                <button class="button ghost small" data-report-action="resolve" data-id="${esc(item.id)}">Oznacz obsłużone</button>
+                <button class="button ghost small" data-report-action="dismiss" data-id="${esc(item.id)}">Odrzuć zgłoszenie</button>
               </div>
             </td>
           </tr>
@@ -122,6 +199,7 @@ function reportTable(items) {
 }
 
 function userTable(items) {
+  if (!items.length) return renderEmpty('Brak historii publikujących.');
   return `
     <table>
       <thead>
@@ -140,7 +218,7 @@ function userTable(items) {
             <td>${esc(item.active_listings_count)}</td>
             <td>${esc(item.published_7d_count)}</td>
             <td>${esc(item.published_30d_count)}</td>
-            <td>${esc(item.last_published_at || '')}</td>
+            <td>${esc(formatDate(item.last_published_at))}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -149,6 +227,7 @@ function userTable(items) {
 }
 
 function logTable(items) {
+  if (!items.length) return renderEmpty('Brak logów.');
   return `
     <table>
       <thead>
@@ -163,7 +242,7 @@ function logTable(items) {
       <tbody>
         ${items.map((item) => `
           <tr>
-            <td>${esc(new Date(item.created_at).toLocaleString('pl-PL'))}</td>
+            <td>${esc(formatDate(item.created_at))}</td>
             <td>${esc(item.event_type)}</td>
             <td>${esc(item.actor_type)} ${esc(item.actor_id || '')}</td>
             <td>${esc(item.listing_id || '')}</td>
@@ -192,6 +271,7 @@ async function login(event) {
     });
     message.hidden = false;
     message.textContent = 'Zalogowano.';
+    form.reset();
     await bootstrap();
   } catch (error) {
     message.hidden = false;
@@ -207,19 +287,24 @@ async function logout() {
 async function loadDashboard() {
   const dashboard = await fetchJson('/admin/dashboard');
   document.getElementById('metrics').innerHTML = [
-    metricCard('Oczekujące', dashboard.data.pending),
-    metricCard('Raporty', dashboard.data.reports),
-    metricCard('Ogółem', dashboard.data.total_listings),
-    metricCard('Aktywne', dashboard.data.active_listings),
+    metricCard('Do moderacji', dashboard.data.pending),
+    metricCard('Zgłoszenia', dashboard.data.reports),
+    metricCard('Wszystkie', dashboard.data.total_listings),
+    metricCard('Publiczne', dashboard.data.active_listings),
     metricCard('Odrzucone', dashboard.data.rejected),
-    metricCard('Użytkownicy', dashboard.data.users)
+    metricCard('Publikujący', dashboard.data.users)
   ].join('');
 }
 
 async function loadListings() {
-  const status = document.getElementById('listing-status-filter').value;
+  const status = adminState.currentStatus || document.getElementById('listing-status-filter').value;
   const payload = await fetchJson(`/admin/listings?limit=50${status ? `&status=${encodeURIComponent(status)}` : ''}`);
+  const visibleIds = new Set((payload.items || []).map((item) => item.id));
+  adminState.selectedListings.forEach((id) => {
+    if (!visibleIds.has(id)) adminState.selectedListings.delete(id);
+  });
   document.getElementById('admin-listings').innerHTML = listingTable(payload.items || []);
+  updateBulkBar();
 }
 
 async function loadReports() {
@@ -238,12 +323,35 @@ async function loadLogs() {
 }
 
 async function actionOnListing(id, action) {
-  const reason = action === 'approve' ? 'approved' : window.prompt(`Powód dla akcji ${action}:`, action) || action;
+  if (!id) return;
+  const defaultReason = action === 'approve' ? 'Zatwierdzone przez administratora' : ACTION_LABELS[action] || action;
+  const reason = action === 'approve' ? defaultReason : window.prompt(`Powód akcji: ${ACTION_LABELS[action] || action}`, defaultReason) || defaultReason;
+  if ((action === 'delete' || action === 'archive') && !window.confirm(`Potwierdź akcję: ${ACTION_LABELS[action] || action}`)) return;
   await fetchJson(`/admin/listings/${encodeURIComponent(id)}/action`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ action, reason })
   });
+  adminState.selectedListings.delete(id);
+  await bootstrap(true);
+}
+
+async function bulkActionOnListings(action) {
+  const ids = Array.from(adminState.selectedListings);
+  if (!ids.length) return;
+  const label = ACTION_LABELS[action] || action;
+  const reason = action === 'approve'
+    ? 'Zatwierdzone zbiorczo przez administratora'
+    : window.prompt(`Powód zbiorczej akcji: ${label}`, label) || label;
+  if (!window.confirm(`Wykonać "${label}" dla ${ids.length} ogłoszeń?`)) return;
+  for (const id of ids) {
+    await fetchJson(`/admin/listings/${encodeURIComponent(id)}/action`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action, reason })
+    });
+  }
+  adminState.selectedListings.clear();
   await bootstrap(true);
 }
 
@@ -261,8 +369,10 @@ async function bootstrap(skipLoginCheck = false) {
   const dashboard = document.getElementById('dashboard');
   const logoutButton = document.getElementById('logout-button');
   try {
-    const me = skipLoginCheck ? { ok: true } : await fetchJson('/admin/me');
+    const me = skipLoginCheck && adminState.me ? { ok: true, user: adminState.me } : await fetchJson('/admin/me');
     if (me.ok) {
+      adminState.me = me.user || adminState.me;
+      renderSession(adminState.me);
       loginCard.hidden = true;
       dashboard.hidden = false;
       logoutButton.hidden = false;
@@ -277,17 +387,55 @@ async function bootstrap(skipLoginCheck = false) {
 
 document.getElementById('login-form')?.addEventListener('submit', login);
 document.getElementById('logout-button')?.addEventListener('click', logout);
-document.getElementById('listing-status-filter')?.addEventListener('change', () => loadListings().catch(console.error));
+document.getElementById('refresh-admin')?.addEventListener('click', () => bootstrap(true).catch((error) => alert(error.message || String(error))));
+document.querySelector('[name="mfa"]')?.addEventListener('input', (event) => {
+  event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 6);
+});
+document.querySelectorAll('[data-admin-status]').forEach((button) => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('[data-admin-status]').forEach((node) => node.classList.remove('active'));
+    button.classList.add('active');
+    adminState.currentStatus = button.getAttribute('data-admin-status') || '';
+    const statusFilter = document.getElementById('listing-status-filter');
+    if (statusFilter) statusFilter.value = adminState.currentStatus;
+    adminState.selectedListings.clear();
+    loadListings().catch((error) => alert(error.message || String(error)));
+  });
+});
 document.addEventListener('click', (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const listingAction = target.dataset.listingAction;
   const reportAction = target.dataset.reportAction;
+  const bulkListingAction = target.dataset.bulkListingAction;
   if (listingAction) {
     actionOnListing(target.dataset.id, listingAction).catch((error) => alert(error.message || String(error)));
   }
   if (reportAction) {
     actionOnReport(target.dataset.id, reportAction).catch((error) => alert(error.message || String(error)));
+  }
+  if (bulkListingAction) {
+    bulkActionOnListings(bulkListingAction).catch((error) => alert(error.message || String(error)));
+  }
+});
+document.addEventListener('change', (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  const listingId = target.dataset.selectListing;
+  if (listingId) {
+    if (target.checked) adminState.selectedListings.add(listingId);
+    else adminState.selectedListings.delete(listingId);
+    updateBulkBar();
+  }
+  if (target.dataset.selectAllListings !== undefined) {
+    document.querySelectorAll('[data-select-listing]').forEach((checkbox) => {
+      if (!(checkbox instanceof HTMLInputElement)) return;
+      checkbox.checked = target.checked;
+      const id = checkbox.dataset.selectListing;
+      if (target.checked && id) adminState.selectedListings.add(id);
+      if (!target.checked && id) adminState.selectedListings.delete(id);
+    });
+    updateBulkBar();
   }
 });
 

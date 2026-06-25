@@ -170,6 +170,10 @@ function cfg(env: Env) {
   };
 }
 
+function imageUploadJsonLimit(env: Env) {
+  return cfg(env).maxImageBytes * 2 + 32_000;
+}
+
 const THROTTLES = {
   listingCreate: { limit: 5, windowMinutes: 60 },
   reportCreate: { limit: 20, windowMinutes: 60 },
@@ -532,7 +536,7 @@ async function queueModerationJob(env: Env, listingId: string, jobType: 'listing
 
 async function notifyNtfy(env: Env, title: string, message: string) {
   if (!env.NTFY_TOPIC_URL) return;
-  await fetch(env.NTFY_TOPIC_URL, {
+  const response = await fetch(env.NTFY_TOPIC_URL, {
     method: 'POST',
     headers: {
       title,
@@ -540,6 +544,9 @@ async function notifyNtfy(env: Env, title: string, message: string) {
     },
     body: message
   });
+  if (!response.ok) {
+    throw new Error(`ntfy error ${response.status}: ${await response.text()}`);
+  }
 }
 
 async function verifyTurnstileIfConfigured(env: Env, token: string, ipAddress: string) {
@@ -1065,7 +1072,7 @@ async function handlePublicConfig(env: Env) {
 }
 
 async function handleCreateListing(request: Request, env: Env) {
-  const body = await readJsonBody<Record<string, unknown>>(request);
+  const body = await readJsonBody<Record<string, unknown>>(request, imageUploadJsonLimit(env));
   const cfgValue = cfg(env);
   const clientIp = getClientIp(request);
   const title = normalizeString(body.title);
@@ -1191,7 +1198,11 @@ async function handleCreateListing(request: Request, env: Env) {
   if (!listingRow) throw new HttpError(500, 'Nie udało się utworzyć ogłoszenia');
 
   await updatePublisherLimits(env, ownerEmail);
-  await sendNtFYNewListing(env, listingRow);
+  try {
+    await sendNtFYNewListing(env, listingRow);
+  } catch (error) {
+    console.error(JSON.stringify({ level: 'warn', message: 'New listing notification failed', listing_id: listingRow.id, error: String(error) }));
+  }
   await logEvent(env, {
     eventType: 'listing.created',
     actorType: 'publisher',
@@ -1285,7 +1296,7 @@ async function handleManageUpdate(request: Request, env: Env, token: string) {
   if (!managed?.listing) {
     throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
   }
-  const body = await readJsonBody<Record<string, unknown>>(request);
+  const body = await readJsonBody<Record<string, unknown>>(request, imageUploadJsonLimit(env));
   const listing = managed.listing;
   if (listing.status !== 'approved') {
     throw new HttpError(409, 'Edycja jest dostępna tylko dla zatwierdzonych ogłoszeń');

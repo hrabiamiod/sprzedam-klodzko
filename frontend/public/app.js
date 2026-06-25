@@ -150,6 +150,8 @@ function renderFilters() {
     typeField.innerHTML = state.types.map((type) => `<option value="${esc(type)}">${esc(type)}</option>`).join('');
     categoryField.innerHTML = state.categories.map((category) => `<option value="${esc(category)}">${esc(category)}</option>`).join('');
   }
+  const categoriesStat = document.getElementById('stat-categories');
+  if (categoriesStat) categoriesStat.textContent = String(state.categories.length || 0);
 }
 
 function updateStats(total) {
@@ -201,14 +203,54 @@ async function initIndex() {
     event.preventDefault();
     loadListings().catch(showError);
   });
+  document.querySelectorAll('[data-type-filter]').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('[data-type-filter]').forEach((node) => node.classList.remove('active'));
+      button.classList.add('active');
+      const type = button.getAttribute('data-type-filter') || '';
+      const typeSelect = document.getElementById('filter-type');
+      if (typeSelect) typeSelect.value = type;
+      loadListings().catch(showError);
+    });
+  });
   document.getElementById('search')?.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       loadListings().catch(showError);
     }
   });
+  document.querySelector('textarea[name="description"]')?.addEventListener('input', updateDescriptionCounter);
+  document.querySelector('input[name="image"]')?.addEventListener('change', previewImage);
   document.getElementById('listing-form')?.addEventListener('submit', submitListing);
+  updateDescriptionCounter();
   setSiteName();
+}
+
+function updateDescriptionCounter() {
+  const textarea = document.querySelector('textarea[name="description"]');
+  const counter = document.getElementById('description-counter');
+  if (!textarea || !counter) return;
+  const length = textarea.value.trim().length;
+  counter.textContent = length < 20 ? `${length}/20 znaków. Dopisz kilka konkretów.` : `${length} znaków.`;
+}
+
+async function previewImage(event) {
+  const file = event.currentTarget?.files?.[0];
+  const preview = document.getElementById('image-preview');
+  if (!preview) return;
+  if (!file) {
+    preview.hidden = true;
+    preview.innerHTML = '';
+    return;
+  }
+  if (file.size > 750_000) {
+    preview.hidden = false;
+    preview.innerHTML = `<strong>Zdjęcie może być za duże.</strong><span>Maksymalny rozmiar produkcyjny to około 750 KB. Zmniejsz plik przed wysłaniem.</span>`;
+    return;
+  }
+  const dataUrl = await fileToDataUrl(file);
+  preview.hidden = false;
+  preview.innerHTML = `<img src="${esc(dataUrl)}" alt="Podgląd zdjęcia" /><span>${esc(file.name)} · ${Math.ceil(file.size / 1024)} KB</span>`;
 }
 
 async function fileToDataUrl(file) {
@@ -306,7 +348,7 @@ async function initListingPage() {
   root.innerHTML = `
     <div class="detail-hero">
       <div class="detail-media">
-        ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : ''}
+        ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : '<div class="no-image">Brak zdjęcia</div>'}
       </div>
       <aside class="detail-panel">
         <div class="pill-row">
@@ -335,7 +377,10 @@ async function initListingPage() {
     </div>
     <div class="detail-footer">
       <a class="button ghost" href="/">Wróć do listy</a>
-      <button class="button primary" id="report-button">Zgłoś naruszenie</button>
+      <div class="row-actions">
+        <button class="button ghost" id="share-button" type="button">Kopiuj link</button>
+        <button class="button primary" id="report-button" type="button">Zgłoś naruszenie</button>
+      </div>
     </div>
     <form id="report-form" class="form-grid" hidden>
       <label class="full">
@@ -356,6 +401,22 @@ async function initListingPage() {
     </form>
     <pre class="message" id="report-message" hidden></pre>
   `;
+  document.getElementById('share-button')?.addEventListener('click', async () => {
+    const message = document.getElementById('report-message');
+    const url = window.location.href;
+    try {
+      await navigator.clipboard.writeText(url);
+      if (message) {
+        message.hidden = false;
+        message.textContent = 'Link do ogłoszenia został skopiowany.';
+      }
+    } catch {
+      if (message) {
+        message.hidden = false;
+        message.textContent = url;
+      }
+    }
+  });
   document.getElementById('report-button')?.addEventListener('click', () => {
     const form = document.getElementById('report-form');
     form.hidden = !form.hidden;

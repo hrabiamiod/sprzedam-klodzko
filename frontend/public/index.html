@@ -35,30 +35,23 @@
     </header>
 
     <main class="shell main-grid">
-      <section class="hero card">
-        <div class="hero-copy">
+      <section class="market-intro">
+        <div>
           <span class="eyebrow">Kłodzko i okolice</span>
-          <h1>Sprzedawaj lokalnie bez zbędnych pośredników.</h1>
-          <p>
-            Ogłoszenia przechodzą weryfikację linkiem i automatyczną moderację. Zdjęcie, kategoria i kontakt w jednym miejscu.
-          </p>
-          <div class="hero-actions">
-            <a class="button primary" href="#add">Dodaj ogłoszenie</a>
-            <a class="button ghost" href="#listings">Zobacz ogłoszenia</a>
-          </div>
+          <h1>Ogłoszenia lokalne, szybka moderacja, zero pośredników.</h1>
         </div>
-        <div class="hero-stats" id="stats">
-          <div class="stat"><strong id="stat-total">0</strong><span>aktywnych ogłoszeń</span></div>
+        <div class="market-stats" id="stats">
+          <div class="stat"><strong id="stat-total">0</strong><span>aktywnych</span></div>
           <div class="stat"><strong id="stat-categories">6</strong><span>kategorii</span></div>
-          <div class="stat"><strong>30 dni</strong><span>standard publikacji</span></div>
+          <div class="stat"><strong>30 dni</strong><span>publikacji</span></div>
         </div>
       </section>
 
-      <section class="card filters" id="listings">
+      <section class="market-toolbar" id="listings">
         <div class="section-head">
           <div>
-            <span class="eyebrow">Przeglądanie</span>
-            <h2>Aktualne ogłoszenia</h2>
+            <span class="eyebrow">Rynek</span>
+            <h2>Znajdź albo wystaw lokalnie</h2>
           </div>
           <div class="status-note" id="load-state">Ładowanie...</div>
         </div>
@@ -68,17 +61,30 @@
           <select id="filter-type" class="input"></select>
           <button class="button primary" id="apply-filters">Filtruj</button>
         </div>
-        <div class="listing-grid" id="listing-grid"></div>
-        <div class="empty" id="empty-state" hidden>Brak ogłoszeń spełniających warunki.</div>
+        <div class="quick-filters" aria-label="Szybkie filtry typów ogłoszeń">
+          <button class="chip active" type="button" data-type-filter="">Wszystkie</button>
+          <button class="chip" type="button" data-type-filter="sprzedam">Sprzedam</button>
+          <button class="chip" type="button" data-type-filter="kupię">Kupię</button>
+          <button class="chip" type="button" data-type-filter="oddam">Oddam</button>
+          <button class="chip" type="button" data-type-filter="szukam">Szukam</button>
+        </div>
       </section>
 
-      <section class="card form-card" id="add">
+      <section class="listings-panel">
+        <div class="listing-grid" id="listing-grid"></div>
+        <div class="empty" id="empty-state" hidden>
+          <strong>Brak ogłoszeń dla tych filtrów.</strong>
+          <span>Zmień kryteria albo dodaj pierwsze ogłoszenie w tej kategorii.</span>
+        </div>
+      </section>
+
+      <section class="publish-panel" id="add">
         <div class="section-head">
           <div>
             <span class="eyebrow">Publikacja</span>
             <h2>Dodaj ogłoszenie</h2>
           </div>
-          <div class="status-note">Po wysłaniu zobaczysz link weryfikacyjny i link zarządzania. Zapisz je od razu.</div>
+          <div class="status-note">Po wysłaniu dostaniesz link weryfikacyjny i link zarządzania. Zapisz je od razu.</div>
         </div>
 
         <form id="listing-form" class="form-grid">
@@ -101,6 +107,7 @@
           <label class="full">
             <span>Opis</span>
             <textarea name="description" class="input textarea" required minlength="20"></textarea>
+            <small class="field-hint" id="description-counter">Minimum 20 znaków.</small>
           </label>
           <label>
             <span>Imię / nazwa kontaktowa</span>
@@ -122,6 +129,7 @@
             <span>Zdjęcie</span>
             <input name="image" class="input" type="file" accept="image/*" />
           </label>
+          <div class="image-preview full" id="image-preview" hidden></div>
           <div class="turnstile-slot full" id="create-turnstile-slot"></div>
           <input type="hidden" name="turnstile_token" id="create-turnstile-token" />
           <label class="full consent">

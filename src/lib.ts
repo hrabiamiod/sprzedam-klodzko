@@ -75,7 +75,7 @@ export function text(body: string, init: ResponseInit = {}) {
 export async function readJsonBody<T>(request: Request, maxBytes = 64_000): Promise<T> {
   const contentLength = request.headers.get('content-length');
   if (contentLength && Number(contentLength) > maxBytes) {
-    throw new HttpError(413, 'Payload too large');
+    throw new HttpError(413, 'Wysyłane dane są zbyt duże. Zmniejsz zdjęcie albo wyślij ogłoszenie bez zdjęcia.');
   }
   try {
     return (await request.json()) as T;
@@ -379,4 +379,3 @@ export function listingStateLabel(status: string) {
 export function buildMetaDescription(title: string, description: string) {
   return clampText(`${title}. ${stripHtml(description)}`, 160);
 }
-
