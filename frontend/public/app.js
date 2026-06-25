@@ -124,15 +124,43 @@ function renderSubmissionMessage(payload) {
   const verifyUrl = payload?.links?.verify || '';
   const manageUrl = payload?.links?.manage || '';
   const notice = payload?.message || 'Ogłoszenie dodane.';
+  const listing = payload?.listing || {};
   return `
-    <div class="submission-result">
-      <strong>${esc(notice)}</strong>
-      <p>Nie wysyłamy już e-maila. Zapisz linki poniżej, bo dają dostęp do weryfikacji i zarządzania ogłoszeniem. Zostaną też zapisane w tej przeglądarce.</p>
-      <div class="submission-links">
-        <a class="button small primary" href="${esc(verifyUrl)}" target="_blank" rel="noreferrer">Link weryfikacyjny</a>
-        <a class="button small ghost" href="${esc(manageUrl)}" target="_blank" rel="noreferrer">Link zarządzania</a>
+    <div class="submission-result launch-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Ogłoszenie zapisane</span>
+          <h3>${esc(listing.title || notice)}</h3>
+        </div>
+        <span class="tag warn">Krok 1 z 3</span>
       </div>
-      <p class="status-note">Link zarządzania pozwala edytować, usuwać i przedłużać ogłoszenie.</p>
+      <p>Nie wysyłamy e-maili. Te linki są jedynym szybkim dostępem do potwierdzenia i zarządzania ogłoszeniem, więc zapisz je teraz.</p>
+      <ol class="submission-steps">
+        <li>
+          <strong>Potwierdź ogłoszenie</strong>
+          <span>Otwórz link weryfikacyjny. Dopiero po tym ogłoszenie trafia do moderacji.</span>
+          <div class="submission-actions">
+            <a class="button small primary" href="${esc(verifyUrl)}" target="_blank" rel="noreferrer">Otwórz weryfikację</a>
+            <button class="button small ghost" type="button" data-copy-submission-link="${esc(verifyUrl)}">Kopiuj</button>
+          </div>
+        </li>
+        <li>
+          <strong>Śledź status publikacji</strong>
+          <span>Panel ogłoszenia pokaże, czy trwa moderacja, publikacja, odrzucenie albo wygaśnięcie.</span>
+          <div class="submission-actions">
+            <a class="button small ghost" href="${esc(manageUrl)}" target="_blank" rel="noreferrer">Otwórz panel ogłoszenia</a>
+            <button class="button small ghost" type="button" data-copy-submission-link="${esc(manageUrl)}">Kopiuj</button>
+          </div>
+        </li>
+        <li>
+          <strong>Zachowaj link zarządzania</strong>
+          <span>Ten link pozwala później edytować, usunąć i przedłużyć aktywne ogłoszenie.</span>
+        </li>
+      </ol>
+      <div class="submission-vault">
+        <span>Linki zapisane lokalnie w tej przeglądarce.</span>
+        <button class="button small ghost" type="button" id="clear-last-submission">Usuń zapisane linki</button>
+      </div>
     </div>
   `;
 }
@@ -530,11 +558,13 @@ async function submitListing(event) {
         </div>
       `;
     }
+    bindSubmissionVaultActions();
     try {
       localStorage.setItem('sprzedam_last_submission', JSON.stringify({
         message: payload.message,
         listing: payload.listing,
-        links: payload.links
+        links: payload.links,
+        saved_at: new Date().toISOString()
       }));
     } catch {
       // Best effort only.
@@ -695,11 +725,38 @@ function restoreLastSubmission() {
       <div class="submission-meta">
         <span>Ogłoszenie: ${esc(data.listing?.title || '')}</span>
         <span>Stan: ${esc(data.listing?.status || '')}</span>
+        ${data.saved_at ? `<span>Zapisano: ${esc(new Date(data.saved_at).toLocaleString('pl-PL'))}</span>` : ''}
       </div>
     `;
+    bindSubmissionVaultActions();
   } catch {
     // Ignore invalid cached state.
   }
+}
+
+function bindSubmissionVaultActions() {
+  document.querySelectorAll('[data-copy-submission-link]').forEach((button) => {
+    if (button.dataset.boundCopy === '1') return;
+    button.dataset.boundCopy = '1';
+    button.addEventListener('click', async () => {
+      const value = button.getAttribute('data-copy-submission-link') || '';
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        button.textContent = 'Skopiowano';
+      } catch {
+        window.prompt('Skopiuj link:', value);
+      }
+    });
+  });
+  document.getElementById('clear-last-submission')?.addEventListener('click', () => {
+    localStorage.removeItem('sprzedam_last_submission');
+    const message = document.getElementById('form-message');
+    if (message) {
+      message.hidden = true;
+      message.innerHTML = '';
+    }
+  }, { once: true });
 }
 
 if (document.getElementById('listing-form')) {
