@@ -405,6 +405,18 @@ label span {
   object-fit: cover;
   border-radius: var(--radius);
 }
+.draft-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(36, 87, 166, 0.22);
+  border-radius: var(--radius);
+  background: rgba(36, 87, 166, 0.08);
+  color: var(--muted);
+  font-size: 14px;
+}
 .consent {
   display: flex;
   align-items: flex-start;

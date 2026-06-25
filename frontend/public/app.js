@@ -26,6 +26,9 @@ const CATEGORY_DESCRIPTIONS = {
   Inne: 'Pozostałe ogłoszenia lokalne, które nie pasują do głównych kategorii.'
 };
 
+const LISTING_DRAFT_KEY = 'sprzedam_listing_draft_v1';
+const DRAFT_FIELDS = ['title', 'type', 'category', 'price', 'description', 'contact_name', 'contact_email', 'contact_phone', 'city', 'contact_consent'];
+
 function api(path) {
   return `${config.apiBase || '/api'}${path}`;
 }
@@ -276,6 +279,7 @@ async function initIndex() {
   document.querySelector('textarea[name="description"]')?.addEventListener('input', updateDescriptionCounter);
   document.querySelector('input[name="image"]')?.addEventListener('change', previewImage);
   document.getElementById('listing-form')?.addEventListener('submit', submitListing);
+  initListingDraftAutosave();
   updateDescriptionCounter();
   setSiteName();
 }
@@ -336,6 +340,89 @@ function updateDescriptionCounter() {
   if (!textarea || !counter) return;
   const length = textarea.value.trim().length;
   counter.textContent = length < 20 ? `${length}/20 znaków. Dopisz kilka konkretów.` : `${length} znaków.`;
+}
+
+function draftPayloadFromForm(form) {
+  const data = new FormData(form);
+  return Object.fromEntries(DRAFT_FIELDS.map((field) => {
+    if (field === 'contact_consent') return [field, Boolean(data.get(field))];
+    return [field, String(data.get(field) || '')];
+  }));
+}
+
+function draftHasContent(draft) {
+  return Object.entries(draft || {}).some(([key, value]) => key !== 'city' && key !== 'contact_consent' && String(value || '').trim());
+}
+
+function updateDraftStatus(message, canClear = true) {
+  const target = document.getElementById('draft-status');
+  if (!target) return;
+  target.hidden = false;
+  target.innerHTML = `
+    <span>${esc(message)}</span>
+    ${canClear ? '<button class="button ghost small" type="button" id="clear-draft">Wyczyść szkic</button>' : ''}
+  `;
+  document.getElementById('clear-draft')?.addEventListener('click', clearListingDraft);
+}
+
+function saveListingDraft() {
+  const form = document.getElementById('listing-form');
+  if (!form) return;
+  const draft = draftPayloadFromForm(form);
+  if (!draftHasContent(draft)) return;
+  try {
+    localStorage.setItem(LISTING_DRAFT_KEY, JSON.stringify({ ...draft, saved_at: new Date().toISOString() }));
+    updateDraftStatus('Szkic zapisany w tej przeglądarce.');
+  } catch {
+    updateDraftStatus('Nie udało się zapisać szkicu w tej przeglądarce.', false);
+  }
+}
+
+function restoreListingDraft() {
+  const form = document.getElementById('listing-form');
+  if (!form) return;
+  try {
+    const raw = localStorage.getItem(LISTING_DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    for (const field of DRAFT_FIELDS) {
+      const input = form.elements[field];
+      if (!input) continue;
+      if (field === 'contact_consent') input.checked = Boolean(draft[field]);
+      else if (draft[field] !== undefined && draft[field] !== null) input.value = draft[field];
+    }
+    updateDescriptionCounter();
+    updateDraftStatus(`Przywrócono szkic z ${new Date(draft.saved_at || Date.now()).toLocaleString('pl-PL')}.`);
+  } catch {
+    clearListingDraft();
+  }
+}
+
+function clearListingDraft() {
+  try {
+    localStorage.removeItem(LISTING_DRAFT_KEY);
+  } catch {
+    // Storage may be disabled in hardened/private browser contexts.
+  }
+  const target = document.getElementById('draft-status');
+  if (target) {
+    target.hidden = true;
+    target.innerHTML = '';
+  }
+}
+
+function initListingDraftAutosave() {
+  const form = document.getElementById('listing-form');
+  if (!form) return;
+  restoreListingDraft();
+  form.addEventListener('input', (event) => {
+    if (event.target?.name === 'image') return;
+    saveListingDraft();
+  });
+  form.addEventListener('change', (event) => {
+    if (event.target?.name === 'image') return;
+    saveListingDraft();
+  });
 }
 
 async function previewImage(event) {
@@ -404,6 +491,7 @@ async function submitListing(event) {
       body: JSON.stringify(body)
     });
     form.reset();
+    clearListingDraft();
     renderTurnstile('create-turnstile-slot', 'create-turnstile-token');
     if (message) {
       message.hidden = false;
