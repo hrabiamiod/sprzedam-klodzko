@@ -281,7 +281,17 @@ E2E_BASE_URL=http://127.0.0.1:8787 E2E_TURNSTILE_TOKEN=<ten-sam-token> npm run e
 
 Bypass Turnstile działa tylko dla `APP_ENV != prod` i tylko po podaniu zgodnego `E2E_TURNSTILE_BYPASS_TOKEN`. Produkcja ignoruje ten bypass nawet przy przypadkowo ustawionym sekrecie.
 
-6. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
+6. Pełniejszy lokalny E2E właściciela ogłoszenia, z zasymulowaną publikacją w lokalnej D1, obejmuje też przedłużenie, edycję i powrót do moderacji:
+
+```bash
+npx wrangler d1 execute sprzedam-klodzko-db-dev --env dev --local --file=./schema.sql
+E2E_TURNSTILE_BYPASS_TOKEN=dev-bypass npx wrangler dev --env dev --local --port 8787
+E2E_BASE_URL=http://127.0.0.1:8787 E2E_TURNSTILE_TOKEN=dev-bypass E2E_APPROVE_WITH_WRANGLER=1 npm run e2e:listing
+```
+
+Tryb `E2E_APPROVE_WITH_WRANGLER=1` działa wyłącznie przez lokalne `wrangler d1 execute --local`. Nie dodaje żadnego testowego endpointu do API.
+
+7. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
 
 ## Runbook operacyjny
 

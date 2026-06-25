@@ -70,7 +70,7 @@ function publicListingUrl(listing) {
 function eventLabel(label) {
   const labels = {
     'listing.created': 'Ogłoszenie utworzone',
-    'listing.verified': 'E-mail/link zweryfikowany',
+    'listing.verified': 'Link zweryfikowany',
     'listing.updated': 'Ogłoszenie edytowane',
     'listing.extended': 'Ogłoszenie przedłużone',
     'listing.deleted': 'Ogłoszenie usunięte',
