@@ -75,7 +75,7 @@ export function text(body: string, init: ResponseInit = {}) {
 export async function readJsonBody<T>(request: Request, maxBytes = 64_000): Promise<T> {
   const contentLength = request.headers.get('content-length');
   if (contentLength && Number(contentLength) > maxBytes) {
-    throw new HttpError(413, 'Payload too large');
+    throw new HttpError(413, 'Wysyłane dane są zbyt duże. Zmniejsz zdjęcie albo wyślij ogłoszenie bez zdjęcia.');
   }
   try {
     return (await request.json()) as T;
@@ -312,10 +312,16 @@ export function buildAbsoluteUrl(baseUrl: string | undefined, path: string) {
 }
 
 export function parseListSearchParams(url: URL) {
+  const minPrice = url.searchParams.get('min_price');
+  const maxPrice = url.searchParams.get('max_price');
+  const sort = url.searchParams.get('sort') || 'newest';
   return {
     q: url.searchParams.get('q') || '',
     category: url.searchParams.get('category') || '',
     type: url.searchParams.get('type') || '',
+    minPriceCents: minPrice ? Math.max(0, Math.round(Number.parseFloat(minPrice) * 100)) : null,
+    maxPriceCents: maxPrice ? Math.max(0, Math.round(Number.parseFloat(maxPrice) * 100)) : null,
+    sort: ['newest', 'oldest', 'price_asc', 'price_desc'].includes(sort) ? sort : 'newest',
     page: Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1),
     limit: Math.min(50, Math.max(1, Number.parseInt(url.searchParams.get('limit') || '12', 10) || 12))
   };
@@ -379,4 +385,3 @@ export function listingStateLabel(status: string) {
 export function buildMetaDescription(title: string, description: string) {
   return clampText(`${title}. ${stripHtml(description)}`, 160);
 }
-

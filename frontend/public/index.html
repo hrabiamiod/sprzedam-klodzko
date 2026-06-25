@@ -35,30 +35,83 @@
     </header>
 
     <main class="shell main-grid">
-      <section class="hero card">
+      <section class="market-intro launch-hero">
         <div class="hero-copy">
           <span class="eyebrow">Kłodzko i okolice</span>
-          <h1>Sprzedawaj lokalnie bez zbędnych pośredników.</h1>
-          <p>
-            Ogłoszenia przechodzą weryfikację linkiem i automatyczną moderację. Zdjęcie, kategoria i kontakt w jednym miejscu.
-          </p>
+          <h1>Lokalne ogłoszenia bez giełdowego chaosu.</h1>
+          <p class="lead">Sprzedaj, kup, oddaj albo znajdź coś w okolicy. Ogłoszenia są moderowane, kontakt jest chroniony przed botami, a właściciel dostaje własny panel statusu.</p>
           <div class="hero-actions">
             <a class="button primary" href="#add">Dodaj ogłoszenie</a>
-            <a class="button ghost" href="#listings">Zobacz ogłoszenia</a>
+            <a class="button ghost" href="#listings">Przeglądaj rynek</a>
+          </div>
+          <div class="trust-strip" aria-label="Najważniejsze cechy serwisu">
+            <span>Bez konta</span>
+            <span>Link zarządzania</span>
+            <span>Moderacja treści</span>
+            <span>Ochrona kontaktu</span>
           </div>
         </div>
-        <div class="hero-stats" id="stats">
-          <div class="stat"><strong id="stat-total">0</strong><span>aktywnych ogłoszeń</span></div>
-          <div class="stat"><strong id="stat-categories">6</strong><span>kategorii</span></div>
-          <div class="stat"><strong>30 dni</strong><span>standard publikacji</span></div>
+        <aside class="hero-ops-card" aria-label="Stan rynku">
+          <div class="market-stats" id="stats">
+            <div class="stat"><strong id="stat-total">0</strong><span>aktywnych</span></div>
+            <div class="stat"><strong id="stat-categories">6</strong><span>kategorii</span></div>
+            <div class="stat"><strong id="stat-latest">30 dni</strong><span>ostatnia publikacja</span></div>
+          </div>
+          <ol class="flow-list">
+            <li><strong>Dodajesz ogłoszenie</strong><span>Formularz zapisuje szkic lokalnie, więc nie tracisz treści.</span></li>
+            <li><strong>Potwierdzasz linkiem</strong><span>Link weryfikacyjny i panel ogłoszenia pojawiają się od razu po wysłaniu.</span></li>
+            <li><strong>Moderacja publikuje</strong><span>Po akceptacji ogłoszenie trafia na rynek i można je edytować lub przedłużyć.</span></li>
+          </ol>
+        </aside>
+      </section>
+
+      <section class="value-grid" aria-label="Dlaczego warto użyć serwisu">
+        <article>
+          <span class="value-icon">01</span>
+          <strong>Rynek lokalny, nie ogólnopolski śmietnik</strong>
+          <p>Filtry, kategorie i strony SEO są ustawione pod Kłodzko i okolice, nie pod przypadkowy ruch.</p>
+        </article>
+        <article>
+          <span class="value-icon">02</span>
+          <strong>Kontakt dopiero po weryfikacji</strong>
+          <p>Dane sprzedającego nie są wystawione botom na widoku listy i szczegółów.</p>
+        </article>
+        <article>
+          <span class="value-icon">03</span>
+          <strong>Właściciel widzi status publikacji</strong>
+          <p>Po dodaniu masz panel ogłoszenia: edycja, usunięcie, przedłużenie i historia zmian.</p>
+        </article>
+      </section>
+
+      <section class="publish-guide" aria-label="Jak dodać dobre ogłoszenie">
+        <div>
+          <span class="eyebrow">Przed publikacją</span>
+          <h2>Dobre ogłoszenie przechodzi szybciej.</h2>
+        </div>
+        <div class="guide-grid">
+          <div><strong>Konkretny tytuł</strong><span>Model, rozmiar, stan albo lokalizacja zamiast „sprzedam”.</span></div>
+          <div><strong>Realna cena</strong><span>Wpisz 0 zł dla „oddam” albo zostaw kwotę orientacyjną.</span></div>
+          <div><strong>Opis bez linków-spamu</strong><span>Treść jest automatycznie moderowana przed publikacją.</span></div>
+          <div><strong>Lekkie zdjęcie</strong><span>Limit produkcyjny to około 750 KB, bo zdjęcia są trzymane w D1.</span></div>
         </div>
       </section>
 
-      <section class="card filters" id="listings">
+      <section class="featured-panel" id="featured-panel" hidden>
         <div class="section-head">
           <div>
-            <span class="eyebrow">Przeglądanie</span>
-            <h2>Aktualne ogłoszenia</h2>
+            <span class="eyebrow">Wyróżnione</span>
+            <h2>Najważniejsze ogłoszenia teraz</h2>
+          </div>
+          <div class="status-note">Ręcznie podbite przez moderację, ograniczone czasowo.</div>
+        </div>
+        <div class="listing-grid featured-grid" id="featured-grid"></div>
+      </section>
+
+      <section class="market-toolbar" id="listings">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Rynek</span>
+            <h2>Znajdź albo wystaw lokalnie</h2>
           </div>
           <div class="status-note" id="load-state">Ładowanie...</div>
         </div>
@@ -66,70 +119,126 @@
           <input id="search" class="input" placeholder="Szukaj po tytule lub opisie" />
           <select id="filter-category" class="input"></select>
           <select id="filter-type" class="input"></select>
+          <input id="filter-min-price" class="input" inputmode="decimal" placeholder="Cena od" />
+          <input id="filter-max-price" class="input" inputmode="decimal" placeholder="Cena do" />
+          <select id="filter-sort" class="input">
+            <option value="newest">Najnowsze</option>
+            <option value="oldest">Najstarsze</option>
+            <option value="price_asc">Cena rosnąco</option>
+            <option value="price_desc">Cena malejąco</option>
+          </select>
           <button class="button primary" id="apply-filters">Filtruj</button>
+          <button class="button ghost" id="reset-filters" type="button">Wyczyść</button>
         </div>
-        <div class="listing-grid" id="listing-grid"></div>
-        <div class="empty" id="empty-state" hidden>Brak ogłoszeń spełniających warunki.</div>
+        <div class="quick-filters" aria-label="Szybkie filtry typów ogłoszeń">
+          <button class="chip active" type="button" data-type-filter="">Wszystkie</button>
+          <button class="chip" type="button" data-type-filter="sprzedam">Sprzedam</button>
+          <button class="chip" type="button" data-type-filter="kupię">Kupię</button>
+          <button class="chip" type="button" data-type-filter="oddam">Oddam</button>
+          <button class="chip" type="button" data-type-filter="szukam">Szukam</button>
+        </div>
+        <div class="filter-status">
+          <div class="active-filters" id="active-filters"></div>
+          <span id="listing-result-summary" class="status-note">Brak wyników</span>
+        </div>
       </section>
 
-      <section class="card form-card" id="add">
+      <section class="listings-panel">
+        <div class="listing-grid" id="listing-grid"></div>
+        <div class="empty" id="empty-state" hidden>
+          <strong>Brak ogłoszeń dla tych filtrów.</strong>
+          <span>Zmień kryteria albo dodaj pierwsze ogłoszenie w tej kategorii.</span>
+        </div>
+        <div class="load-more-wrap">
+          <button class="button ghost" id="load-more-listings" type="button" hidden>Pokaż więcej ogłoszeń</button>
+        </div>
+      </section>
+
+      <section class="category-panel">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Kategorie</span>
+            <h2>Wejdź od razu w konkretny rynek</h2>
+          </div>
+          <div class="status-note">Stabilne strony kategorii pomagają użytkownikom i SEO.</div>
+        </div>
+        <div class="category-links" id="category-links"></div>
+      </section>
+
+      <section class="publish-panel publish-layout" id="add">
         <div class="section-head">
           <div>
             <span class="eyebrow">Publikacja</span>
             <h2>Dodaj ogłoszenie</h2>
           </div>
-          <div class="status-note">Po wysłaniu zobaczysz link weryfikacyjny i link zarządzania. Zapisz je od razu.</div>
+          <div class="status-note">Po wysłaniu dostaniesz link weryfikacyjny i link zarządzania. Zapisz je od razu.</div>
         </div>
 
-        <form id="listing-form" class="form-grid">
-          <label>
-            <span>Tytuł</span>
-            <input name="title" class="input" required maxlength="120" />
-          </label>
-          <label>
-            <span>Typ</span>
-            <select name="type" class="input" required></select>
-          </label>
-          <label>
-            <span>Kategoria</span>
-            <select name="category" class="input" required></select>
-          </label>
-          <label>
-            <span>Cena (PLN)</span>
-            <input name="price" class="input" inputmode="decimal" placeholder="0" />
-          </label>
-          <label class="full">
-            <span>Opis</span>
-            <textarea name="description" class="input textarea" required minlength="20"></textarea>
-          </label>
-          <label>
-            <span>Imię / nazwa kontaktowa</span>
-            <input name="contact_name" class="input" required />
-          </label>
-          <label>
-            <span>E-mail kontaktowy</span>
-            <input name="contact_email" class="input" type="email" required />
-          </label>
-          <label>
-            <span>Telefon</span>
-            <input name="contact_phone" class="input" />
-          </label>
-          <label>
-            <span>Miejscowość</span>
-            <input name="city" class="input" value="Kłodzko" />
-          </label>
-          <label class="full">
-            <span>Zdjęcie</span>
-            <input name="image" class="input" type="file" accept="image/*" />
-          </label>
-          <div class="turnstile-slot full" id="create-turnstile-slot"></div>
-          <input type="hidden" name="turnstile_token" id="create-turnstile-token" />
-          <label class="full consent">
-            <input name="contact_consent" type="checkbox" required />
-            <span>Wyrażam zgodę na przetwarzanie danych osobowych w celu publikacji ogłoszenia.</span>
-          </label>
-          <button class="button primary full" type="submit">Wyślij ogłoszenie</button>
-        </form>
+        <div class="publish-content">
+          <form id="listing-form" class="form-grid">
+            <label>
+              <span>Tytuł</span>
+              <input name="title" class="input" required maxlength="120" placeholder="np. Rower trekkingowy Kross, rama M" />
+            </label>
+            <label>
+              <span>Typ</span>
+              <select name="type" class="input" required></select>
+            </label>
+            <label>
+              <span>Kategoria</span>
+              <select name="category" class="input" required></select>
+            </label>
+            <label>
+              <span>Cena (PLN)</span>
+              <input name="price" class="input" inputmode="decimal" placeholder="0" />
+            </label>
+            <label class="full">
+              <span>Opis</span>
+              <textarea name="description" class="input textarea" required minlength="20" placeholder="Stan, wymiary, odbiór, powód sprzedaży, co jest w zestawie."></textarea>
+              <small class="field-hint" id="description-counter">Minimum 20 znaków.</small>
+            </label>
+            <label>
+              <span>Imię / nazwa kontaktowa</span>
+              <input name="contact_name" class="input" required placeholder="np. Michał" />
+            </label>
+            <label>
+              <span>E-mail kontaktowy</span>
+              <input name="contact_email" class="input" type="email" required placeholder="adres do obsługi ogłoszenia" />
+            </label>
+            <label>
+              <span>Telefon</span>
+              <input name="contact_phone" class="input" placeholder="opcjonalnie" />
+            </label>
+            <label>
+              <span>Miejscowość</span>
+              <input name="city" class="input" value="Kłodzko" />
+            </label>
+            <label class="full">
+              <span>Zdjęcie</span>
+              <input name="image" class="input" type="file" accept="image/*" />
+            </label>
+            <div class="image-preview full" id="image-preview" hidden></div>
+            <div class="turnstile-slot full" id="create-turnstile-slot"></div>
+            <input type="hidden" name="turnstile_token" id="create-turnstile-token" />
+            <label class="full consent">
+              <input name="contact_consent" type="checkbox" required />
+              <span>Wyrażam zgodę na przetwarzanie danych osobowych w celu publikacji ogłoszenia.</span>
+            </label>
+            <div class="draft-status full" id="draft-status" hidden></div>
+            <button class="button primary full" type="submit">Wyślij ogłoszenie i pokaż linki</button>
+          </form>
+
+          <aside class="publish-side">
+            <span class="eyebrow">Po wysłaniu</span>
+            <h3>Nie zgub linków.</h3>
+            <p>Serwis nie wymaga konta i nie wysyła e-maili transakcyjnych. Link potwierdzenia oraz link zarządzania pojawią się na ekranie i zapiszą lokalnie w tej przeglądarce.</p>
+            <ul>
+              <li>Potwierdzasz publikację jednym przyciskiem.</li>
+              <li>W panelu ogłoszenia widzisz status moderacji.</li>
+              <li>Po publikacji możesz edytować, usunąć albo przedłużyć ogłoszenie.</li>
+            </ul>
+          </aside>
+        </div>
         <div class="message" id="form-message" hidden></div>
       </section>
     </main>

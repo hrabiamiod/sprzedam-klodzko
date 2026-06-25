@@ -11,8 +11,9 @@ Repo zawiera gotowy szkielet produkcyjny:
 - baza danych w Cloudflare D1,
 - moderację przez OpenAI Moderation API,
 - powiadomienia dla administratora przez ntfy.sh,
-- panel administratora z loginem, hasłem, MFA i ograniczeniem IP.
+- panel administratora z loginem, hasłem, MFA i ograniczeniem IP,
 - ochronę publicznych formularzy przez Turnstile i limity po IP.
+- publikację bez e-maili transakcyjnych: link weryfikacyjny i link zarządzania są pokazane od razu po dodaniu ogłoszenia.
 
 ## Struktura
 
@@ -92,7 +93,9 @@ Worker obsługuje:
 - `GET /api/listings`
 - `POST /api/listings`
 - `GET /api/listings/:id`
+- `GET /api/listings/:id/image`
 - `GET /api/listings/:id/verify?token=...`
+- `POST /api/listings/:id/contact`
 - `POST /api/listings/:id/report`
 - `GET|PUT|DELETE /api/manage/:token`
 - `POST /api/manage/:token/extend`
@@ -104,6 +107,11 @@ Worker obsługuje:
 - `GET /api/admin/reports`
 - `GET /api/admin/logs`
 - `GET /api/admin/users`
+- `GET /api/admin/security`
+- `GET /api/admin/system`
+- `GET /api/admin/sessions`
+- `DELETE /api/admin/sessions/:id`
+- `GET /api/admin/listings/:id/history`
 - `POST /api/admin/listings/:id/action`
 - `POST /api/admin/reports/:id/action`
 
@@ -111,11 +119,11 @@ Worker obsługuje:
 
 1. Użytkownik dodaje ogłoszenie.
 2. System zapisuje je jako `pending`.
-3. Frontend pokazuje link weryfikacyjny i link zarządzania.
-4. Po kliknięciu linku weryfikacyjnego ogłoszenie trafia do kolejki moderacji.
+3. Frontend pokazuje link weryfikacyjny i link zarządzania oraz zapisuje je lokalnie w przeglądarce.
+4. Użytkownik potwierdza ogłoszenie przyciskiem w interfejsie albo zapisanym linkiem weryfikacyjnym.
 5. OpenAI Moderation API decyduje, czy ogłoszenie przechodzi.
 6. Po akceptacji ogłoszenie od razu staje się publiczne na 30 dni.
-7. Cron sprawdza wygasanie i przypomnienia.
+7. Cron sprawdza wygasanie i przypomnienia operacyjne dla administratora.
 
 ## Frontend Pages
 
@@ -124,7 +132,8 @@ Frontend jest w `frontend/public`.
 ### Publiczne strony
 
 - `/` - strona główna z listą ogłoszeń i formularzem dodawania
-- `/ogloszenie/:slug` - szczegóły ogłoszenia przez redirect z `/_redirects`
+- `/kategoria/:slug` - landing page kategorii z listą i filtrami
+- `/ogloszenie/:slug` - szczegóły ogłoszenia z metadanymi SEO renderowanymi przez Workera na edge
 - `/manage?token=...` - zarządzanie ogłoszeniem z linku zapisanego po dodaniu ogłoszenia
   - token `manage_listing` pozwala edytować i usuwać ogłoszenie
   - token `extend_listing` pozwala tylko odczytać ogłoszenie i przedłużyć publikację
@@ -143,8 +152,8 @@ Frontend jest w `frontend/public`.
 
 Repo jest przygotowane do deployu z GitHuba:
 
-- `CI` uruchamia `npm run check` na pushach i pull requestach.
-- `Deploy Worker` wdraża Workera na `main`.
+- `CI` uruchamia `npm run check` oraz `npm run e2e:local` na pushach i pull requestach.
+- `Deploy Worker` na `main` robi `npm ci`, `npm run check`, `npm run e2e:local`, `wrangler deploy --env prod --dry-run`, a dopiero potem właściwy deploy Workera.
 
 Wymagane sekrety w GitHub:
 
@@ -217,6 +226,26 @@ wrangler deploy --env prod
 wrangler pages deploy public --cwd frontend --project-name sprzedam-klodzko-dev --branch main --commit-dirty=true
 ```
 
+10. Po deployu uruchom smoke test produkcji:
+
+```bash
+npm run smoke:prod
+```
+
+Skrypt sprawdza bez tworzenia danych:
+
+- `/api/health`,
+- `/api/categories`,
+- `/api/listings`,
+- `/`,
+- `/admin/`,
+- `/manage`,
+- `/kategoria/elektronika`,
+- `/sitemap.xml`,
+- blokadę `POST /api/listings` bez tokenu Turnstile.
+
+Jeżeli test `Public listing create is blocked without human verification` zacznie przechodzić jako publikacja zamiast błędu 400/429, traktuj to jako incydent bezpieczeństwa publicznego formularza.
+
 ## Local dev
 
 1. Zainstaluj zależności:
@@ -240,10 +269,99 @@ npm run check
 4. Uruchom Worker lokalnie:
 
 ```bash
-npm run dev
+npm run dev -- --env dev
 ```
 
-5. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
+5. Opcjonalny pełny test flow ogłoszenia w środowisku nieprodukcyjnym:
+
+```bash
+wrangler secret put --env dev E2E_TURNSTILE_BYPASS_TOKEN
+E2E_BASE_URL=http://127.0.0.1:8787 E2E_TURNSTILE_TOKEN=<ten-sam-token> npm run e2e:listing
+```
+
+Bypass Turnstile działa tylko dla `APP_ENV != prod` i tylko po podaniu zgodnego `E2E_TURNSTILE_BYPASS_TOKEN`. Produkcja ignoruje ten bypass nawet przy przypadkowo ustawionym sekrecie.
+
+6. Najprostszy lokalny test krytycznych przepływów, taki sam jak w CI:
+
+```bash
+npm run e2e:local
+```
+
+Ta komenda ładuje lokalny schemat D1, startuje lokalnego Workera, uruchamia E2E właściciela ogłoszenia oraz E2E panelu administratora z MFA.
+
+7. Pełniejszy lokalny E2E właściciela ogłoszenia, z zasymulowaną publikacją w lokalnej D1, obejmuje też przedłużenie, edycję i powrót do moderacji:
+
+```bash
+npx wrangler d1 execute sprzedam-klodzko-db-dev --env dev --local --file=./schema.sql
+E2E_TURNSTILE_BYPASS_TOKEN=dev-bypass npx wrangler dev --env dev --local --port 8787
+E2E_BASE_URL=http://127.0.0.1:8787 E2E_TURNSTILE_TOKEN=dev-bypass E2E_APPROVE_WITH_WRANGLER=1 npm run e2e:listing
+```
+
+Tryb `E2E_APPROVE_WITH_WRANGLER=1` działa wyłącznie przez lokalne `wrangler d1 execute --local`. Nie dodaje żadnego testowego endpointu do API.
+
+8. Lokalny E2E panelu administratora sprawdza MFA/TOTP, sesję, dashboard, listę sesji i logout. Użyj testowych sekretów w `.dev.vars`:
+
+```bash
+ADMIN_USERNAME=admin-e2e
+ADMIN_PASSWORD=admin-e2e-password
+ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXP
+ADMIN_SESSION_SECRET=local-admin-session-secret
+ADMIN_ALLOWED_IPS=127.0.0.1,::1
+```
+
+Potem uruchom:
+
+```bash
+npx wrangler d1 execute sprzedam-klodzko-db-dev --env dev --local --file=./schema.sql
+npx wrangler dev --env dev --local --port 8787
+E2E_BASE_URL=http://127.0.0.1:8787 npm run e2e:admin
+```
+
+9. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
+
+## Runbook operacyjny
+
+### Standardowy deploy po zmianach
+
+```bash
+npm run check
+node --check frontend/public/app.js
+node --check frontend/public/admin.js
+node --check frontend/public/manage.js
+npx wrangler@4.104.0 deploy --env prod --dry-run
+npx wrangler@4.104.0 deploy --env prod
+npx wrangler@4.104.0 pages deploy public --cwd frontend --project-name sprzedam-klodzko-dev --branch main --commit-dirty=true
+npm run smoke:prod
+```
+
+### Ręczne smoke testy przed publicznym ogłoszeniem startu
+
+- dodanie ogłoszenia z małym zdjęciem,
+- zapisanie linku weryfikacyjnego i linku zarządzania,
+- potwierdzenie ogłoszenia przyciskiem w interfejsie albo linkiem weryfikacyjnym,
+- moderacja w `/admin/`,
+- wejście w publiczny link ogłoszenia,
+- edycja z linku zarządzania i powrót do moderacji,
+- przedłużenie ogłoszenia,
+- zgłoszenie naruszenia,
+- obsługa zgłoszenia w panelu admina.
+
+### Reakcja na problem z publikacją ogłoszeń
+
+1. Sprawdź `npm run smoke:prod`.
+2. Sprawdź `wrangler tail sprzedam-klodzko-api-prod --format json`.
+3. Zweryfikuj, czy `TURNSTILE_SITE_KEY` i `TURNSTILE_SECRET_KEY` są ustawione dla prod.
+4. Sprawdź limit payloadu i rozmiar zdjęcia. Produkcyjny limit zdjęcia to `MAX_IMAGE_BYTES`.
+5. Jeżeli ogłoszenie zapisało się w D1, ale użytkownik dostał błąd, sprawdź `event_logs`, `request_throttle_counters` oraz logi `ntfy` dla powiadomień administratora.
+
+### Backup D1
+
+Przed większymi zmianami lub kampanią promocyjną:
+
+```bash
+mkdir -p backups
+npx wrangler@4.104.0 d1 export sprzedam-klodzko-db --env prod --remote --output ./backups/sprzedam-klodzko-db-$(date +%Y%m%d-%H%M).sql
+```
 
 ## Sekrety i MFA
 
@@ -272,9 +390,10 @@ Do MFA używany jest TOTP. W praktyce:
 - `GET /api/config`
 - `GET /api/categories`
 - `GET /`
+- `GET /manage`
 - dodanie ogłoszenia
 - zapisanie linków weryfikacyjnych
-- potwierdzenie linku
+- potwierdzenie ogłoszenia w interfejsie albo linkiem
 - publikacja ogłoszenia
 - edycja ogłoszenia i ponowna moderacja
 - przedłużenie ogłoszenia

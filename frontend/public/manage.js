@@ -46,6 +46,160 @@ function money(cents, currency = 'PLN') {
   }).format((cents || 0) / 100);
 }
 
+const STATUS_LABELS = {
+  pending: 'Oczekuje na moderację',
+  approved: 'Opublikowane',
+  rejected: 'Odrzucone',
+  expired: 'Wygasłe',
+  archived: 'Archiwum'
+};
+
+function formatDate(value) {
+  if (!value) return 'brak';
+  return new Date(value).toLocaleString('pl-PL');
+}
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status || 'nieznany';
+}
+
+function publicListingUrl(listing) {
+  return `${window.location.origin}/ogloszenie/${encodeURIComponent(listing.slug)}`;
+}
+
+function eventLabel(label) {
+  const labels = {
+    'listing.created': 'Ogłoszenie utworzone',
+    'listing.verified': 'Link zweryfikowany',
+    'listing.updated': 'Ogłoszenie edytowane',
+    'listing.extended': 'Ogłoszenie przedłużone',
+    'listing.deleted': 'Ogłoszenie usunięte',
+    'listing.approved': 'Ogłoszenie zatwierdzone linkiem',
+    'listing.moderation.approved': 'Moderacja zaakceptowała ogłoszenie',
+    'listing.moderation.rejected': 'Moderacja odrzuciła ogłoszenie',
+    'listing.reported': 'Dodano zgłoszenie naruszenia',
+    'admin.listing.approve': 'Administrator zatwierdził ogłoszenie',
+    'admin.listing.feature': 'Administrator wyróżnił ogłoszenie',
+    'admin.listing.unfeature': 'Administrator zdjął wyróżnienie',
+    'admin.listing.reject': 'Administrator odrzucił ogłoszenie',
+    'admin.listing.archive': 'Administrator zarchiwizował ogłoszenie',
+    'admin.listing.delete': 'Administrator usunął ogłoszenie'
+  };
+  return labels[label] || label;
+}
+
+function renderTimeline(items = []) {
+  if (!items.length) {
+    return '<div class="empty"><strong>Brak historii zmian.</strong><span>Historia pojawi się po moderacji, edycji albo przedłużeniu.</span></div>';
+  }
+  return `
+    <ol class="timeline-list">
+      ${items.map((item) => `
+        <li>
+          <strong>${esc(eventLabel(item.label))}</strong>
+          <span>${esc(formatDate(item.created_at))}</span>
+          ${item.version ? `<span>Wersja: ${esc(item.version)}</span>` : ''}
+        </li>
+      `).join('')}
+    </ol>
+  `;
+}
+
+function renderPublicationStatus(status) {
+  const tone = status?.tone || 'warn';
+  const steps = Array.isArray(status?.next_steps) ? status.next_steps : [];
+  return `
+    <section class="status-card ${esc(tone)}">
+      <div>
+        <span class="tag ${esc(tone)}">${esc(status?.label || 'Status nieznany')}</span>
+        <h2>${esc(status?.summary || 'Nie udało się ustalić statusu publikacji.')}</h2>
+        <p>${esc(status?.detail || '')}</p>
+      </div>
+      ${steps.length ? `
+        <ol class="next-steps">
+          ${steps.map((step) => `<li>${esc(step)}</li>`).join('')}
+        </ol>
+      ` : ''}
+    </section>
+  `;
+}
+
+function timelineHas(timeline, labels) {
+  const wanted = Array.isArray(labels) ? labels : [labels];
+  return timeline.some((item) => wanted.includes(item.label));
+}
+
+function renderPublicationRoadmap(timeline, publicationStatus = {}) {
+  const state = publicationStatus.state || '';
+  const steps = [
+    {
+      key: 'created',
+      label: 'Utworzone',
+      detail: 'Ogłoszenie zostało zapisane w systemie.',
+      done: timelineHas(timeline, 'listing.created')
+    },
+    {
+      key: 'verified',
+      label: 'Potwierdzone',
+      detail: 'Link potwierdzający został użyty przez właściciela.',
+      done: timelineHas(timeline, ['listing.verified', 'listing.approved'])
+    },
+    {
+      key: 'moderation',
+      label: 'Moderacja',
+      detail: 'Treść jest sprawdzana automatycznie albo ręcznie.',
+      done: timelineHas(timeline, ['listing.moderation.approved', 'admin.listing.approve']),
+      current: state === 'moderation'
+    },
+    {
+      key: 'published',
+      label: 'Publikacja',
+      detail: 'Ogłoszenie jest widoczne publicznie do czasu wygaśnięcia.',
+      done: state === 'live' || timelineHas(timeline, ['listing.moderation.approved', 'admin.listing.approve']),
+      current: state === 'live'
+    }
+  ];
+
+  return `
+    <section class="owner-roadmap" aria-label="Etapy publikacji">
+      ${steps.map((step) => `
+        <article class="${step.done ? 'done' : ''} ${step.current ? 'current' : ''}">
+          <span>${esc(step.done ? 'OK' : step.current ? 'TERAZ' : 'CZEKA')}</span>
+          <strong>${esc(step.label)}</strong>
+          <p>${esc(step.detail)}</p>
+        </article>
+      `).join('')}
+    </section>
+  `;
+}
+
+function renderOwnerHints(publicationStatus, canManage, canExtend) {
+  const hints = [];
+  if (publicationStatus.state === 'needs_verification') {
+    hints.push('Wróć do linku potwierdzającego z ekranu po dodaniu ogłoszenia.');
+  }
+  if (publicationStatus.state === 'moderation') {
+    hints.push('Nie wysyłaj ponownie tego samego ogłoszenia. Moderacja działa na tej wersji.');
+  }
+  if (canManage && publicationStatus.can_edit !== false) {
+    hints.push('Edycja aktywnego ogłoszenia cofnie je do moderacji, żeby chronić rynek przed podmianą treści.');
+  }
+  if (canExtend) {
+    hints.push('Przedłuż ogłoszenie, jeśli oferta jest nadal aktualna.');
+  }
+  if (!hints.length) {
+    hints.push('Zachowaj link zarządzania. Bez niego nie odzyskasz szybkiej kontroli nad ogłoszeniem.');
+  }
+  return `
+    <aside class="owner-hints">
+      <span class="eyebrow">Co teraz</span>
+      <ul>
+        ${hints.map((hint) => `<li>${esc(hint)}</li>`).join('')}
+      </ul>
+    </aside>
+  `;
+}
+
 async function fileToDataUrl(file) {
   if (!file) return null;
   return await new Promise((resolve, reject) => {
@@ -60,43 +214,67 @@ function getToken() {
   return new URLSearchParams(window.location.search).get('token') || '';
 }
 
-function renderListing(listing, tokenPurpose) {
+function renderListing(listing, tokenPurpose, timeline = [], publicationStatus = {}) {
   const image = listing.image_base64 ? `data:${listing.image_mime || 'image/jpeg'};base64,${listing.image_base64}` : '';
+  const canManage = tokenPurpose === 'manage_listing';
+  const canEdit = canManage && publicationStatus.can_edit !== false;
+  const canExtend = publicationStatus.can_extend === true;
+  const publicUrl = publicationStatus.public_url || publicListingUrl(listing);
+  const manageUrl = window.location.href;
   const root = document.getElementById('manage-root');
   root.innerHTML = `
-    <div class="section-head">
+    <div class="owner-command">
       <div>
-        <span class="eyebrow">Ogłoszenie</span>
+        <span class="eyebrow">Panel ogłoszenia</span>
         <h1>${esc(listing.title)}</h1>
+        <p>To jest prywatny panel właściciela. Pozwala śledzić publikację, edytować treść, przedłużyć ofertę i usunąć ogłoszenie.</p>
       </div>
-      <div class="status-note">Status: ${esc(listing.status)}</div>
+      <aside class="owner-token-card">
+        <span class="tag ${canManage ? 'ok' : 'warn'}">${canManage ? 'Pełne zarządzanie' : 'Tylko przedłużenie'}</span>
+        <strong>Nie zgub tego linku</strong>
+        <span>Nie wymagamy konta, więc ten adres jest Twoim dostępem do panelu.</span>
+        <button class="button ghost small" type="button" data-copy-manage-link="${esc(manageUrl)}">Kopiuj link panelu</button>
+      </aside>
     </div>
-    <div class="detail-hero">
+    <div class="metric-grid manage-metrics">
+      <div class="metric"><strong>${esc(publicationStatus.label || statusLabel(listing.status))}</strong><span>Status publikacji</span></div>
+      <div class="metric"><strong>${esc(formatDate(listing.expires_at))}</strong><span>Wygasa</span></div>
+      <div class="metric"><strong>${esc(formatDate(listing.updated_at))}</strong><span>Ostatnia zmiana</span></div>
+    </div>
+    ${renderPublicationStatus(publicationStatus)}
+    ${renderPublicationRoadmap(timeline, publicationStatus)}
+    <div class="owner-overview">
       <div class="detail-media">
-        ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : ''}
+        ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : '<div class="no-image">Brak zdjęcia</div>'}
       </div>
-      <aside class="detail-panel">
-        <div class="pill-row">
-          <span class="pill">${esc(listing.type)}</span>
-          <span class="pill gray">${esc(listing.category)}</span>
+      <aside class="detail-panel owner-preview">
+        <div>
+          <span class="eyebrow">Podgląd oferty</span>
+          <div class="pill-row">
+            <span class="pill">${esc(listing.type)}</span>
+            <span class="pill gray">${esc(listing.category)}</span>
+            <span class="pill gray">${esc(listing.city || 'Kłodzko')}</span>
+          </div>
         </div>
         <div class="detail-price">${money(listing.price_cents, listing.currency)}</div>
         <p>${esc(listing.description)}</p>
         <div class="pill-row">
           <span class="tag">${esc(listing.contact_email)}</span>
-          <span class="tag">${esc(listing.contact_phone || '')}</span>
+          ${listing.contact_phone ? `<span class="tag">${esc(listing.contact_phone)}</span>` : ''}
         </div>
         <div class="pill-row">
-          <span class="tag ok">Weryfikacja: ${esc(listing.status)}</span>
+          <span class="tag ${esc(publicationStatus.tone || 'ok')}">Publikacja: ${esc(publicationStatus.label || statusLabel(listing.status))}</span>
         </div>
       </aside>
+      ${renderOwnerHints(publicationStatus, canManage, canExtend)}
     </div>
-    <section class="card" style="padding:18px;background:rgba(255,255,255,.6)" id="edit-section">
+    <section class="publish-panel" id="edit-section">
       <div class="section-head">
         <div>
           <span class="eyebrow">Edycja</span>
           <h2>Zmień dane ogłoszenia</h2>
         </div>
+        <div class="status-note">Po edycji opublikowane ogłoszenie wraca do moderacji.</div>
       </div>
       <form id="edit-form" class="form-grid">
         <label>
@@ -154,25 +332,37 @@ function renderListing(listing, tokenPurpose) {
         <button class="button primary" type="submit">Zapisz zmiany</button>
       </form>
     </section>
-    <section class="card" style="padding:18px;background:rgba(255,255,255,.6)">
+    <section class="publish-panel">
       <div class="section-head">
         <div>
           <span class="eyebrow">Operacje</span>
-          <h2>Przedłużenie i usunięcie</h2>
+          <h2>Publikacja i udostępnianie</h2>
         </div>
       </div>
       <div class="hero-actions">
-        <button class="button primary" id="extend-button" type="button">Przedłuż o 30 dni</button>
-        <button class="button ghost" id="delete-button" type="button">Usuń ogłoszenie</button>
+        ${canExtend ? '<button class="button primary" id="extend-button" type="button">Przedłuż o 30 dni</button>' : ''}
+        ${publicationStatus.public_url ? '<button class="button ghost" id="copy-public-link" type="button">Kopiuj link publiczny</button>' : ''}
+        <button class="button ghost" type="button" data-copy-manage-link="${esc(manageUrl)}">Kopiuj link panelu</button>
+        ${publicationStatus.public_url ? `<a class="button ghost" href="${esc(publicUrl)}" target="_blank" rel="noreferrer">Zobacz publicznie</a>` : ''}
+        ${canManage ? '<button class="button ghost danger-action" id="delete-button" type="button">Usuń ogłoszenie</button>' : ''}
         <a class="button ghost" href="/">Wróć do listy</a>
       </div>
       <pre class="message" id="manage-message" hidden></pre>
     </section>
+    <section class="publish-panel">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Historia</span>
+          <h2>Status i zdarzenia</h2>
+        </div>
+        <div class="status-note">To pomaga sprawdzić, na jakim etapie jest publikacja.</div>
+      </div>
+      ${renderTimeline(timeline)}
+    </section>
   `;
-  if (tokenPurpose !== 'manage_listing') {
+  if (!canEdit) {
     const editSection = document.getElementById('edit-section');
     editSection.hidden = true;
-    document.getElementById('delete-button').hidden = true;
   }
 }
 
@@ -186,9 +376,32 @@ async function init() {
   }
   const payload = await fetchJson(`/manage/${encodeURIComponent(token)}`);
   const listing = payload.listing;
-  renderListing(listing, payload.token_purpose);
+  renderListing(listing, payload.token_purpose, payload.timeline || [], payload.publication_status || {});
 
   const message = document.getElementById('manage-message');
+  document.getElementById('copy-public-link')?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(publicListingUrl(listing));
+      message.hidden = false;
+      message.textContent = 'Link publiczny został skopiowany.';
+    } catch {
+      message.hidden = false;
+      message.textContent = publicListingUrl(listing);
+    }
+  });
+  document.querySelectorAll('[data-copy-manage-link]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const value = button.getAttribute('data-copy-manage-link') || window.location.href;
+      try {
+        await navigator.clipboard.writeText(value);
+        message.hidden = false;
+        message.textContent = 'Link panelu został skopiowany.';
+      } catch {
+        message.hidden = false;
+        message.textContent = value;
+      }
+    });
+  });
   document.getElementById('edit-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -213,6 +426,7 @@ async function init() {
       });
       message.hidden = false;
       message.textContent = 'Zapisano. Ogłoszenie wróciło do kolejki moderacji.';
+      window.setTimeout(() => window.location.reload(), 700);
     } catch (error) {
       message.hidden = false;
       message.textContent = error.message || String(error);
@@ -226,6 +440,7 @@ async function init() {
       });
       message.hidden = false;
       message.textContent = response.message || 'Przedłużono ogłoszenie.';
+      window.setTimeout(() => window.location.reload(), 700);
     } catch (error) {
       message.hidden = false;
       message.textContent = error.message || String(error);
@@ -240,6 +455,7 @@ async function init() {
       });
       message.hidden = false;
       message.textContent = response.message || 'Usunięto ogłoszenie.';
+      window.setTimeout(() => window.location.reload(), 700);
     } catch (error) {
       message.hidden = false;
       message.textContent = error.message || String(error);

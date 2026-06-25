@@ -29,7 +29,7 @@
     </header>
 
     <main class="shell admin-shell">
-      <section class="card login-card" id="login-card">
+      <section class="login-card" id="login-card">
         <div class="section-head">
           <div>
             <span class="eyebrow">Dostęp ograniczony</span>
@@ -48,7 +48,8 @@
           </label>
           <label>
             <span>Kod MFA</span>
-            <input name="mfa" class="input" inputmode="numeric" autocomplete="one-time-code" required />
+            <input name="mfa" class="input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="000000" required />
+            <small class="field-hint">6 cyfr z aplikacji TOTP, np. 1Password, Bitwarden, Google Authenticator.</small>
           </label>
           <button class="button primary full" type="submit">Zaloguj</button>
         </form>
@@ -56,26 +57,77 @@
       </section>
 
       <section class="admin-grid" id="dashboard" hidden>
+        <section class="admin-command">
+          <div>
+            <span class="eyebrow">Centrum operacyjne</span>
+            <h1>Moderacja i stan serwisu</h1>
+            <p>Najpierw obsługuj oczekujące ogłoszenia i zgłoszenia. Logi są do weryfikacji incydentów oraz zmian administracyjnych.</p>
+          </div>
+          <div class="session-card" id="session-card"></div>
+        </section>
+
+        <nav class="admin-nav" aria-label="Sekcje panelu">
+          <a href="#moderation">Moderacja</a>
+          <a href="#reports">Zgłoszenia</a>
+          <a href="#publishers">Publikujący</a>
+          <a href="#security">Bezpieczeństwo</a>
+          <a href="#sessions">Sesje</a>
+          <a href="#system">System</a>
+          <a href="#logs">Logi</a>
+        </nav>
+
         <div class="metric-grid" id="metrics"></div>
-        <section class="card admin-panel">
+
+        <section class="admin-panel admin-workbench" id="workbench">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Kolejka pracy</span>
+              <h2>Co wymaga reakcji teraz</h2>
+            </div>
+            <button class="button ghost small" id="refresh-workbench" type="button">Odśwież kolejkę</button>
+          </div>
+          <div id="admin-workbench"></div>
+        </section>
+
+        <section class="admin-panel" id="system">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Gotowość produkcyjna</span>
+              <h2>System i konfiguracja</h2>
+            </div>
+            <button class="button ghost small" id="refresh-system" type="button">Odśwież system</button>
+          </div>
+          <div id="admin-system"></div>
+        </section>
+
+        <section class="admin-panel" id="moderation">
           <div class="section-head">
             <div>
               <span class="eyebrow">Moderacja</span>
               <h2>Ogłoszenia</h2>
             </div>
-            <select id="listing-status-filter" class="input compact">
-              <option value="">Wszystkie</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="expired">Expired</option>
-              <option value="archived">Archived</option>
-            </select>
+            <button class="button ghost small" id="refresh-admin" type="button">Odśwież</button>
+          </div>
+          <div class="status-tabs" id="status-tabs">
+            <button class="chip active" type="button" data-admin-status="">Wszystkie</button>
+            <button class="chip" type="button" data-admin-status="pending">Oczekujące</button>
+            <button class="chip" type="button" data-admin-status="approved">Aktywne</button>
+            <button class="chip" type="button" data-admin-status="rejected">Odrzucone</button>
+            <button class="chip" type="button" data-admin-status="expired">Wygasłe</button>
+            <button class="chip" type="button" data-admin-status="archived">Archiwum</button>
+          </div>
+          <input id="listing-status-filter" type="hidden" value="" />
+          <div class="bulk-bar" id="bulk-bar" hidden>
+            <strong id="bulk-count">0 zaznaczonych</strong>
+            <button class="button ghost small" type="button" data-bulk-listing-action="approve">Zatwierdź</button>
+            <button class="button ghost small" type="button" data-bulk-listing-action="reject">Odrzuć</button>
+            <button class="button ghost small" type="button" data-bulk-listing-action="archive">Archiwizuj</button>
           </div>
           <div id="admin-listings" class="table-wrap"></div>
+          <div id="admin-history" class="history-wrap" hidden></div>
         </section>
 
-        <section class="card admin-panel">
+        <section class="admin-panel" id="reports">
           <div class="section-head">
             <div>
               <span class="eyebrow">Raporty</span>
@@ -85,7 +137,7 @@
           <div id="admin-reports" class="table-wrap"></div>
         </section>
 
-        <section class="card admin-panel">
+        <section class="admin-panel" id="publishers">
           <div class="section-head">
             <div>
               <span class="eyebrow">Użytkownicy</span>
@@ -95,7 +147,29 @@
           <div id="admin-users" class="table-wrap"></div>
         </section>
 
-        <section class="card admin-panel">
+        <section class="admin-panel" id="security">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Antyspam i prywatność</span>
+              <h2>Bezpieczeństwo ruchu</h2>
+            </div>
+            <button class="button ghost small" id="refresh-security" type="button">Odśwież bezpieczeństwo</button>
+          </div>
+          <div id="admin-security"></div>
+        </section>
+
+        <section class="admin-panel" id="sessions">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Bezpieczeństwo</span>
+              <h2>Sesje administratora</h2>
+            </div>
+            <button class="button ghost small" id="refresh-sessions" type="button">Odśwież sesje</button>
+          </div>
+          <div id="admin-sessions" class="table-wrap"></div>
+        </section>
+
+        <section class="admin-panel" id="logs">
           <div class="section-head">
             <div>
               <span class="eyebrow">Logi</span>

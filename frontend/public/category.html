@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kategoria - Sprzedam Kłodzko</title>
+    <meta name="description" content="Ogłoszenia lokalne w wybranej kategorii dla Kłodzka i okolic." />
+    <meta property="og:title" content="Ogłoszenia lokalne - Sprzedam Kłodzko" />
+    <meta property="og:description" content="Przeglądaj lokalne ogłoszenia według kategorii." />
+    <meta property="og:type" content="website" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/config.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="page-bg"></div>
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="/">
+          <span class="brand-mark">K</span>
+          <span>
+            <strong id="site-name">Sprzedam Kłodzko</strong>
+            <small>Kategoria ogłoszeń</small>
+          </span>
+        </a>
+        <nav class="nav">
+          <a href="/">Strona główna</a>
+          <a href="/#add">Dodaj ogłoszenie</a>
+          <a href="/admin/">Admin</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="shell main-grid" id="category-root">
+      <section class="market-intro category-hero">
+        <div>
+          <span class="eyebrow">Kategoria</span>
+          <h1 id="category-title">Ogłoszenia lokalne</h1>
+          <p id="category-description" class="lead">Ładowanie kategorii...</p>
+        </div>
+        <div class="market-stats">
+          <div class="stat"><strong id="stat-total">0</strong><span>ogłoszeń</span></div>
+          <div class="stat"><strong>Kłodzko</strong><span>lokalnie</span></div>
+          <div class="stat"><strong id="stat-latest">30 dni</strong><span>ostatnia publikacja</span></div>
+        </div>
+      </section>
+
+      <section class="market-toolbar">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Filtry</span>
+            <h2>Przeglądaj kategorię</h2>
+          </div>
+          <div class="status-note" id="load-state">Ładowanie...</div>
+        </div>
+        <div class="filters-row">
+          <input id="search" class="input" type="search" placeholder="Szukaj w tej kategorii" />
+          <select id="filter-category" class="input"></select>
+          <select id="filter-type" class="input"></select>
+          <input id="filter-min-price" class="input" inputmode="decimal" placeholder="Cena od" />
+          <input id="filter-max-price" class="input" inputmode="decimal" placeholder="Cena do" />
+          <select id="filter-sort" class="input">
+            <option value="newest">Najnowsze</option>
+            <option value="oldest">Najstarsze</option>
+            <option value="price_asc">Cena rosnąco</option>
+            <option value="price_desc">Cena malejąco</option>
+          </select>
+          <button class="button primary" id="apply-filters">Filtruj</button>
+          <button class="button ghost" id="reset-filters" type="button">Wyczyść</button>
+        </div>
+        <div class="quick-filters" aria-label="Szybkie filtry typów ogłoszeń">
+          <button class="chip active" type="button" data-type-filter="">Wszystkie</button>
+          <button class="chip" type="button" data-type-filter="sprzedam">Sprzedam</button>
+          <button class="chip" type="button" data-type-filter="kupię">Kupię</button>
+          <button class="chip" type="button" data-type-filter="oddam">Oddam</button>
+          <button class="chip" type="button" data-type-filter="szukam">Szukam</button>
+        </div>
+        <div class="filter-status">
+          <div class="active-filters" id="active-filters"></div>
+          <span id="listing-result-summary" class="status-note">Brak wyników</span>
+        </div>
+      </section>
+
+      <section class="listings-panel">
+        <div class="listing-grid" id="listing-grid"></div>
+        <div class="empty" id="empty-state" hidden>
+          <strong>Brak ogłoszeń w tej kategorii.</strong>
+          <span>Dodaj pierwsze ogłoszenie albo sprawdź inne typy ogłoszeń.</span>
+          <a class="button primary" href="/#add">Dodaj ogłoszenie</a>
+        </div>
+        <div class="load-more-wrap">
+          <button class="button ghost" id="load-more-listings" type="button" hidden>Pokaż więcej ogłoszeń</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="shell site-footer">
+      <div>
+        <strong>Sprzedam Kłodzko</strong>
+        <p>Lokalny serwis ogłoszeniowy z automatyczną moderacją.</p>
+      </div>
+      <div class="footer-links">
+        <a href="/regulamin.html">Regulamin</a>
+        <a href="/polityka-prywatnosci.html">Polityka prywatności</a>
+      </div>
+    </footer>
+  </body>
+</html>

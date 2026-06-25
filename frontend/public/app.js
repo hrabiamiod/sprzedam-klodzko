@@ -3,8 +3,36 @@ const config = Object.assign({}, window.APP_CONFIG || {});
 const state = {
   categories: [],
   types: [],
-  listings: []
+  listings: [],
+  featured: [],
+  fixedCategory: '',
+  stats: null,
+  listingPage: 1,
+  listingLimit: 12,
+  listingTotal: 0,
+  listingHasMore: false
 };
+
+const CATEGORY_SLUGS = {
+  elektronika: 'Elektronika',
+  meble: 'Meble',
+  auto: 'Auto',
+  ubrania: 'Ubrania',
+  uslugi: 'Usługi',
+  inne: 'Inne'
+};
+
+const CATEGORY_DESCRIPTIONS = {
+  Elektronika: 'Telefony, komputery, RTV, drobna elektronika i akcesoria od osób z Kłodzka i okolic.',
+  Meble: 'Meble do domu, biura, ogrodu oraz wyposażenie wnętrz dostępne lokalnie.',
+  Auto: 'Części, akcesoria, auta, motocykle i lokalne usługi związane z motoryzacją.',
+  Ubrania: 'Odzież, obuwie, dodatki i rzeczy dziecięce wystawiane lokalnie.',
+  Usługi: 'Lokalne usługi, pomoc, naprawy, zlecenia i oferty specjalistów z okolicy.',
+  Inne: 'Pozostałe ogłoszenia lokalne, które nie pasują do głównych kategorii.'
+};
+
+const LISTING_DRAFT_KEY = 'sprzedam_listing_draft_v1';
+const DRAFT_FIELDS = ['title', 'type', 'category', 'price', 'description', 'contact_name', 'contact_email', 'contact_phone', 'city', 'contact_consent'];
 
 function api(path) {
   return `${config.apiBase || '/api'}${path}`;
@@ -87,6 +115,10 @@ function money(cents, currency = 'PLN') {
   }).format((cents || 0) / 100);
 }
 
+function plainText(value = '', maxLength = 160) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
 function esc(value = '') {
   return String(value)
     .replace(/&/g, '&amp;')
@@ -96,30 +128,129 @@ function esc(value = '') {
     .replace(/'/g, '&#39;');
 }
 
+function setMetaAttribute(selector, attribute, value) {
+  let node = document.querySelector(selector);
+  if (!node) {
+    node = document.createElement('meta');
+    const match = selector.match(/\[(name|property)="([^"]+)"\]/);
+    if (match) node.setAttribute(match[1], match[2]);
+    document.head.appendChild(node);
+  }
+  node.setAttribute(attribute, value);
+}
+
+function setCanonical(url) {
+  let node = document.querySelector('link[rel="canonical"]');
+  if (!node) {
+    node = document.createElement('link');
+    node.setAttribute('rel', 'canonical');
+    document.head.appendChild(node);
+  }
+  node.setAttribute('href', url);
+}
+
+function setJsonLd(id, data) {
+  let node = document.getElementById(id);
+  if (!node) {
+    node = document.createElement('script');
+    node.type = 'application/ld+json';
+    node.id = id;
+    document.head.appendChild(node);
+  }
+  node.textContent = JSON.stringify(data);
+}
+
 function renderSubmissionMessage(payload) {
   const verifyUrl = payload?.links?.verify || '';
   const manageUrl = payload?.links?.manage || '';
   const notice = payload?.message || 'Ogłoszenie dodane.';
+  const listing = payload?.listing || {};
+  const verified = Boolean(payload?.verified_at || payload?.verification_done);
   return `
-    <div class="submission-result">
-      <strong>${esc(notice)}</strong>
-      <p>Nie wysyłamy już e-maila. Zapisz linki poniżej, bo dają dostęp do weryfikacji i zarządzania ogłoszeniem. Zostaną też zapisane w tej przeglądarce.</p>
-      <div class="submission-links">
-        <a class="button small primary" href="${esc(verifyUrl)}" target="_blank" rel="noreferrer">Link weryfikacyjny</a>
-        <a class="button small ghost" href="${esc(manageUrl)}" target="_blank" rel="noreferrer">Link zarządzania</a>
+    <div class="submission-result launch-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Ogłoszenie zapisane</span>
+          <h3>${esc(listing.title || notice)}</h3>
+        </div>
+        <span class="tag ${verified ? 'ok' : 'warn'}">${verified ? 'Weryfikacja wykonana' : 'Krok 1 z 3'}</span>
       </div>
-      <p class="status-note">Link zarządzania pozwala edytować, usuwać i przedłużać ogłoszenie.</p>
+      <p>Nie wysyłamy e-maili. Te linki są jedynym szybkim dostępem do potwierdzenia i zarządzania ogłoszeniem, więc zapisz je teraz.</p>
+      <div class="submission-status" id="submission-status" aria-live="polite">
+        ${verified ? 'Ogłoszenie jest potwierdzone i czeka na moderację.' : 'Potwierdź ogłoszenie w tym oknie. Po potwierdzeniu przejdź do panelu ogłoszenia.'}
+      </div>
+      <ol class="submission-steps">
+        <li>
+          <strong>Potwierdź ogłoszenie</strong>
+          <span>Potwierdzenie uruchamia moderację. Bez tego ogłoszenie nie będzie publiczne.</span>
+          <div class="submission-actions">
+            <button class="button small primary" type="button" data-verify-submission-link="${esc(verifyUrl)}" ${verified ? 'disabled' : ''}>${verified ? 'Potwierdzone' : 'Potwierdź teraz'}</button>
+            <button class="button small ghost" type="button" data-copy-submission-link="${esc(verifyUrl)}">Kopiuj</button>
+          </div>
+        </li>
+        <li>
+          <strong>Śledź status publikacji</strong>
+          <span>Panel ogłoszenia pokaże, czy trwa moderacja, publikacja, odrzucenie albo wygaśnięcie.</span>
+          <div class="submission-actions">
+            <a class="button small ghost" href="${esc(manageUrl)}" target="_blank" rel="noreferrer">Otwórz panel ogłoszenia</a>
+            <button class="button small ghost" type="button" data-copy-submission-link="${esc(manageUrl)}">Kopiuj</button>
+          </div>
+        </li>
+        <li>
+          <strong>Zachowaj link zarządzania</strong>
+          <span>Ten link pozwala później edytować, usunąć i przedłużyć aktywne ogłoszenie.</span>
+        </li>
+      </ol>
+      <div class="submission-vault">
+        <span>Linki zapisane lokalnie w tej przeglądarce.</span>
+        <button class="button small ghost" type="button" id="clear-last-submission">Usuń zapisane linki</button>
+      </div>
     </div>
   `;
+}
+
+function updateListingMeta(listing, publicUrl, imageUrl) {
+  const siteName = config.siteName || 'Sprzedam Kłodzko';
+  const title = `${listing.title} - ${siteName}`;
+  const description = plainText(listing.description, 180);
+  document.title = title;
+  setCanonical(publicUrl);
+  setMetaAttribute('meta[name="description"]', 'content', description);
+  setMetaAttribute('meta[property="og:title"]', 'content', title);
+  setMetaAttribute('meta[property="og:description"]', 'content', description);
+  setMetaAttribute('meta[property="og:url"]', 'content', publicUrl);
+  setMetaAttribute('meta[property="og:type"]', 'content', 'article');
+  setMetaAttribute('meta[name="twitter:card"]', 'content', imageUrl ? 'summary_large_image' : 'summary');
+  if (imageUrl) {
+    setMetaAttribute('meta[property="og:image"]', 'content', imageUrl);
+  }
+  setJsonLd('listing-jsonld', {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: listing.title,
+    description,
+    image: imageUrl || undefined,
+    category: listing.category,
+    offers: {
+      '@type': 'Offer',
+      price: ((listing.price_cents || 0) / 100).toFixed(2),
+      priceCurrency: listing.currency || 'PLN',
+      availability: 'https://schema.org/InStock',
+      url: publicUrl,
+      areaServed: listing.city || 'Kłodzko',
+      validThrough: listing.expires_at || undefined
+    }
+  });
 }
 
 function listingCard(listing) {
   const image = listing.image_base64 ? `data:${listing.image_mime || 'image/jpeg'};base64,${listing.image_base64}` : '';
   const href = `/ogloszenie/${encodeURIComponent(listing.slug)}`;
   return `
-    <a class="listing-card" href="${href}">
+    <a class="listing-card ${listing.is_featured ? 'featured' : ''}" href="${href}">
       ${image ? `<img class="listing-image" src="${image}" alt="${esc(listing.title)}" loading="lazy" />` : `<div class="listing-image"></div>`}
       <div class="card-top">
+        ${listing.is_featured ? '<span class="pill featured-pill">Wyróżnione</span>' : ''}
         <span class="pill">${esc(listing.type)}</span>
         <span class="pill gray">${esc(listing.category)}</span>
       </div>
@@ -131,6 +262,33 @@ function listingCard(listing) {
       </div>
     </a>
   `;
+}
+
+function categorySlug(category) {
+  const entry = Object.entries(CATEGORY_SLUGS).find(([, value]) => value === category);
+  return entry ? entry[0] : encodeURIComponent(String(category).toLowerCase());
+}
+
+function renderCategoryLinks() {
+  const target = document.getElementById('category-links');
+  if (!target) return;
+  target.innerHTML = state.categories.map((category) => `
+    <a class="category-tile" href="/kategoria/${categorySlug(category)}">
+      <strong>${esc(category)} <span>${esc(state.stats?.by_category?.[category] || 0)}</span></strong>
+      <span>${esc(CATEGORY_DESCRIPTIONS[category] || 'Lokalne ogłoszenia w tej kategorii.')}</span>
+    </a>
+  `).join('');
+}
+
+function renderMarketStats() {
+  const totalNode = document.getElementById('stat-total');
+  const categoriesNode = document.getElementById('stat-categories');
+  const latestNode = document.getElementById('stat-latest');
+  if (totalNode && state.stats) totalNode.textContent = String(state.stats.total_active || 0);
+  if (categoriesNode) categoriesNode.textContent = String(state.categories.length || 0);
+  if (latestNode && state.stats?.latest_approved_at) {
+    latestNode.textContent = new Date(state.stats.latest_approved_at).toLocaleDateString('pl-PL');
+  }
 }
 
 function renderFilters() {
@@ -150,11 +308,15 @@ function renderFilters() {
     typeField.innerHTML = state.types.map((type) => `<option value="${esc(type)}">${esc(type)}</option>`).join('');
     categoryField.innerHTML = state.categories.map((category) => `<option value="${esc(category)}">${esc(category)}</option>`).join('');
   }
+  const categoriesStat = document.getElementById('stat-categories');
+  if (categoriesStat) categoriesStat.textContent = String(state.categories.length || 0);
+  renderMarketStats();
+  renderCategoryLinks();
 }
 
 function updateStats(total) {
   const totalNode = document.getElementById('stat-total');
-  if (totalNode) totalNode.textContent = String(total);
+  if (totalNode) totalNode.textContent = String(state.fixedCategory ? total : state.stats?.total_active ?? total);
 }
 
 function renderListings(items) {
@@ -170,45 +332,378 @@ function renderListings(items) {
   grid.innerHTML = items.map(listingCard).join('');
 }
 
-async function loadListings() {
-  const loadState = document.getElementById('load-state');
-  if (loadState) loadState.textContent = 'Ładowanie...';
-  const params = new URLSearchParams();
+function renderFeatured(items) {
+  const panel = document.getElementById('featured-panel');
+  const grid = document.getElementById('featured-grid');
+  if (!panel || !grid) return;
+  if (!items.length) {
+    panel.hidden = true;
+    grid.innerHTML = '';
+    return;
+  }
+  panel.hidden = false;
+  grid.innerHTML = items.map(listingCard).join('');
+}
+
+function listingFilterSnapshot() {
   const search = document.getElementById('search');
   const category = document.getElementById('filter-category');
   const type = document.getElementById('filter-type');
-  if (search?.value) params.set('q', search.value);
-  if (category?.value) params.set('category', category.value);
-  if (type?.value) params.set('type', type.value);
-  params.set('limit', '12');
+  const minPrice = document.getElementById('filter-min-price');
+  const maxPrice = document.getElementById('filter-max-price');
+  const sort = document.getElementById('filter-sort');
+  return {
+    q: (search?.value || '').trim(),
+    category: state.fixedCategory || category?.value || '',
+    type: type?.value || '',
+    min_price: (minPrice?.value || '').trim(),
+    max_price: (maxPrice?.value || '').trim(),
+    sort: sort?.value || 'newest'
+  };
+}
+
+function listingParams(page = 1) {
+  const snapshot = listingFilterSnapshot();
+  const params = new URLSearchParams();
+  if (snapshot.q) params.set('q', snapshot.q);
+  if (snapshot.category) params.set('category', snapshot.category);
+  if (snapshot.type) params.set('type', snapshot.type);
+  if (snapshot.min_price) params.set('min_price', snapshot.min_price);
+  if (snapshot.max_price) params.set('max_price', snapshot.max_price);
+  if (snapshot.sort && snapshot.sort !== 'newest') params.set('sort', snapshot.sort);
+  params.set('page', String(page));
+  params.set('limit', String(state.listingLimit));
+  return params;
+}
+
+function restoreFiltersFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const search = document.getElementById('search');
+  const category = document.getElementById('filter-category');
+  const type = document.getElementById('filter-type');
+  const minPrice = document.getElementById('filter-min-price');
+  const maxPrice = document.getElementById('filter-max-price');
+  const sort = document.getElementById('filter-sort');
+  if (search && params.has('q')) search.value = params.get('q') || '';
+  if (!state.fixedCategory && category && params.has('category')) category.value = params.get('category') || '';
+  if (type && params.has('type')) type.value = params.get('type') || '';
+  if (minPrice && params.has('min_price')) minPrice.value = params.get('min_price') || '';
+  if (maxPrice && params.has('max_price')) maxPrice.value = params.get('max_price') || '';
+  if (sort && params.has('sort')) sort.value = params.get('sort') || 'newest';
+}
+
+function syncFiltersToUrl(page = 1) {
+  const params = listingParams(page);
+  params.delete('limit');
+  if (state.fixedCategory) params.delete('category');
+  if (page <= 1) params.delete('page');
+  const next = params.toString();
+  const nextUrl = `${window.location.pathname}${next ? `?${next}` : ''}${window.location.hash || ''}`;
+  window.history.replaceState({}, '', nextUrl);
+}
+
+function setQuickType(type = '') {
+  document.querySelectorAll('[data-type-filter]').forEach((node) => {
+    node.classList.toggle('active', (node.getAttribute('data-type-filter') || '') === type);
+  });
+}
+
+function renderActiveFilters() {
+  const target = document.getElementById('active-filters');
+  if (!target) return;
+  const snapshot = listingFilterSnapshot();
+  const filters = [];
+  if (snapshot.q) filters.push(`Szukasz: ${snapshot.q}`);
+  if (snapshot.category && !state.fixedCategory) filters.push(`Kategoria: ${snapshot.category}`);
+  if (snapshot.type) filters.push(`Typ: ${snapshot.type}`);
+  if (snapshot.min_price) filters.push(`Od: ${snapshot.min_price} zł`);
+  if (snapshot.max_price) filters.push(`Do: ${snapshot.max_price} zł`);
+  if (snapshot.sort !== 'newest') {
+    const label = {
+      oldest: 'Najstarsze',
+      price_asc: 'Cena rosnąco',
+      price_desc: 'Cena malejąco'
+    }[snapshot.sort] || snapshot.sort;
+    filters.push(`Sortowanie: ${label}`);
+  }
+  target.innerHTML = filters.length ? filters.map((label) => `<span class="filter-pill">${esc(label)}</span>`).join('') : '<span class="filter-pill muted">Brak aktywnych filtrów</span>';
+}
+
+function updateListControls() {
+  const loadMore = document.getElementById('load-more-listings');
+  const summary = document.getElementById('listing-result-summary');
+  if (loadMore) {
+    loadMore.hidden = !state.listingHasMore;
+    loadMore.disabled = false;
+  }
+  if (summary) {
+    const shown = state.listings.length;
+    summary.textContent = state.listingTotal ? `Pokazano ${shown} z ${state.listingTotal}` : 'Brak wyników';
+  }
+  renderActiveFilters();
+}
+
+function clearListingFilters() {
+  const search = document.getElementById('search');
+  const category = document.getElementById('filter-category');
+  const type = document.getElementById('filter-type');
+  const minPrice = document.getElementById('filter-min-price');
+  const maxPrice = document.getElementById('filter-max-price');
+  const sort = document.getElementById('filter-sort');
+  if (search) search.value = '';
+  if (category && !state.fixedCategory) category.value = '';
+  if (type) type.value = '';
+  if (minPrice) minPrice.value = '';
+  if (maxPrice) maxPrice.value = '';
+  if (sort) sort.value = 'newest';
+  setQuickType('');
+}
+
+async function loadFeaturedListings() {
+  const payload = await fetchJson('/listings?featured=1&sort=newest&limit=3');
+  state.featured = payload.items || [];
+  renderFeatured(state.featured);
+}
+
+async function loadListings({ append = false, page = 1 } = {}) {
+  const loadState = document.getElementById('load-state');
+  if (loadState) loadState.textContent = 'Ładowanie...';
+  const params = listingParams(page);
+  const loadMore = document.getElementById('load-more-listings');
+  if (append && loadMore) loadMore.disabled = true;
   const payload = await fetchJson(`/listings?${params.toString()}`);
-  state.listings = payload.items || [];
+  state.listingPage = payload.page || page;
+  state.listingTotal = payload.total || 0;
+  state.listings = append ? [...state.listings, ...(payload.items || [])] : payload.items || [];
+  state.listingHasMore = state.listings.length < state.listingTotal;
   renderListings(state.listings);
   updateStats(payload.total || 0);
+  syncFiltersToUrl(state.listingPage);
+  updateListControls();
   if (loadState) loadState.textContent = `${payload.total || 0} ogłoszeń`;
 }
 
 async function initIndex() {
   await loadSiteConfig();
-  const payload = await fetchJson('/categories');
+  const [payload, statsPayload] = await Promise.all([
+    fetchJson('/categories'),
+    fetchJson('/stats').catch(() => ({ ok: false }))
+  ]);
   state.categories = payload.categories || [];
   state.types = payload.types || [];
+  state.stats = statsPayload.ok ? statsPayload : null;
   renderFilters();
+  restoreFiltersFromUrl();
+  setQuickType(document.getElementById('filter-type')?.value || '');
   renderTurnstile('create-turnstile-slot', 'create-turnstile-token');
-  await loadListings();
+  await Promise.all([loadFeaturedListings(), loadListings()]);
 
   document.getElementById('apply-filters')?.addEventListener('click', (event) => {
     event.preventDefault();
     loadListings().catch(showError);
   });
-  document.getElementById('search')?.addEventListener('keydown', (event) => {
+  document.querySelectorAll('[data-type-filter]').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('[data-type-filter]').forEach((node) => node.classList.remove('active'));
+      button.classList.add('active');
+      const type = button.getAttribute('data-type-filter') || '';
+      const typeSelect = document.getElementById('filter-type');
+      if (typeSelect) typeSelect.value = type;
+      loadListings().catch(showError);
+    });
+  });
+  document.getElementById('reset-filters')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    clearListingFilters();
+    loadListings().catch(showError);
+  });
+  document.getElementById('load-more-listings')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    loadListings({ append: true, page: state.listingPage + 1 }).catch(showError);
+  });
+  document.querySelectorAll('#search, #filter-min-price, #filter-max-price').forEach((input) => input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
       loadListings().catch(showError);
     }
-  });
+  }));
+  document.querySelector('textarea[name="description"]')?.addEventListener('input', updateDescriptionCounter);
+  document.querySelector('input[name="image"]')?.addEventListener('change', previewImage);
   document.getElementById('listing-form')?.addEventListener('submit', submitListing);
+  initListingDraftAutosave();
+  updateDescriptionCounter();
   setSiteName();
+}
+
+async function initCategoryPage() {
+  await loadSiteConfig();
+  const slug = new URLSearchParams(window.location.search).get('slug') || window.location.pathname.split('/').filter(Boolean).pop() || '';
+  const category = CATEGORY_SLUGS[decodeURIComponent(slug)] || '';
+  const root = document.getElementById('category-root');
+  if (!category || !root) {
+    if (root) root.innerHTML = '<div class="empty"><strong>Nie znaleziono kategorii.</strong><span>Wróć na stronę główną i wybierz kategorię z listy.</span></div>';
+    return;
+  }
+  state.fixedCategory = category;
+  const [payload, statsPayload] = await Promise.all([
+    fetchJson('/categories'),
+    fetchJson('/stats').catch(() => ({ ok: false }))
+  ]);
+  state.categories = payload.categories || [];
+  state.types = payload.types || [];
+  state.stats = statsPayload.ok ? statsPayload : null;
+  document.title = `${category} - ogłoszenia lokalne Kłodzko`;
+  document.querySelector('meta[name="description"]')?.setAttribute('content', CATEGORY_DESCRIPTIONS[category] || `Ogłoszenia lokalne w kategorii ${category}.`);
+  document.getElementById('category-title').textContent = `${category} w Kłodzku`;
+  document.getElementById('category-description').textContent = CATEGORY_DESCRIPTIONS[category] || 'Lokalne ogłoszenia w tej kategorii.';
+  renderFilters();
+  restoreFiltersFromUrl();
+  const categorySelect = document.getElementById('filter-category');
+  if (categorySelect) {
+    categorySelect.value = category;
+    categorySelect.disabled = true;
+  }
+  setQuickType(document.getElementById('filter-type')?.value || '');
+  await loadListings();
+  document.getElementById('apply-filters')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    loadListings().catch(showError);
+  });
+  document.querySelectorAll('[data-type-filter]').forEach((button) => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('[data-type-filter]').forEach((node) => node.classList.remove('active'));
+      button.classList.add('active');
+      const type = button.getAttribute('data-type-filter') || '';
+      const typeSelect = document.getElementById('filter-type');
+      if (typeSelect) typeSelect.value = type;
+      loadListings().catch(showError);
+    });
+  });
+  document.getElementById('reset-filters')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    clearListingFilters();
+    loadListings().catch(showError);
+  });
+  document.getElementById('load-more-listings')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    loadListings({ append: true, page: state.listingPage + 1 }).catch(showError);
+  });
+  document.querySelectorAll('#search, #filter-min-price, #filter-max-price').forEach((input) => input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      loadListings().catch(showError);
+    }
+  }));
+}
+
+function updateDescriptionCounter() {
+  const textarea = document.querySelector('textarea[name="description"]');
+  const counter = document.getElementById('description-counter');
+  if (!textarea || !counter) return;
+  const length = textarea.value.trim().length;
+  counter.textContent = length < 20 ? `${length}/20 znaków. Dopisz kilka konkretów.` : `${length} znaków.`;
+}
+
+function draftPayloadFromForm(form) {
+  const data = new FormData(form);
+  return Object.fromEntries(DRAFT_FIELDS.map((field) => {
+    if (field === 'contact_consent') return [field, Boolean(data.get(field))];
+    return [field, String(data.get(field) || '')];
+  }));
+}
+
+function draftHasContent(draft) {
+  return Object.entries(draft || {}).some(([key, value]) => key !== 'city' && key !== 'contact_consent' && String(value || '').trim());
+}
+
+function updateDraftStatus(message, canClear = true) {
+  const target = document.getElementById('draft-status');
+  if (!target) return;
+  target.hidden = false;
+  target.innerHTML = `
+    <span>${esc(message)}</span>
+    ${canClear ? '<button class="button ghost small" type="button" id="clear-draft">Wyczyść szkic</button>' : ''}
+  `;
+  document.getElementById('clear-draft')?.addEventListener('click', clearListingDraft);
+}
+
+function saveListingDraft() {
+  const form = document.getElementById('listing-form');
+  if (!form) return;
+  const draft = draftPayloadFromForm(form);
+  if (!draftHasContent(draft)) return;
+  try {
+    localStorage.setItem(LISTING_DRAFT_KEY, JSON.stringify({ ...draft, saved_at: new Date().toISOString() }));
+    updateDraftStatus('Szkic zapisany w tej przeglądarce.');
+  } catch {
+    updateDraftStatus('Nie udało się zapisać szkicu w tej przeglądarce.', false);
+  }
+}
+
+function restoreListingDraft() {
+  const form = document.getElementById('listing-form');
+  if (!form) return;
+  try {
+    const raw = localStorage.getItem(LISTING_DRAFT_KEY);
+    if (!raw) return;
+    const draft = JSON.parse(raw);
+    for (const field of DRAFT_FIELDS) {
+      const input = form.elements[field];
+      if (!input) continue;
+      if (field === 'contact_consent') input.checked = Boolean(draft[field]);
+      else if (draft[field] !== undefined && draft[field] !== null) input.value = draft[field];
+    }
+    updateDescriptionCounter();
+    updateDraftStatus(`Przywrócono szkic z ${new Date(draft.saved_at || Date.now()).toLocaleString('pl-PL')}.`);
+  } catch {
+    clearListingDraft();
+  }
+}
+
+function clearListingDraft() {
+  try {
+    localStorage.removeItem(LISTING_DRAFT_KEY);
+  } catch {
+    // Storage may be disabled in hardened/private browser contexts.
+  }
+  const target = document.getElementById('draft-status');
+  if (target) {
+    target.hidden = true;
+    target.innerHTML = '';
+  }
+}
+
+function initListingDraftAutosave() {
+  const form = document.getElementById('listing-form');
+  if (!form) return;
+  restoreListingDraft();
+  form.addEventListener('input', (event) => {
+    if (event.target?.name === 'image') return;
+    saveListingDraft();
+  });
+  form.addEventListener('change', (event) => {
+    if (event.target?.name === 'image') return;
+    saveListingDraft();
+  });
+}
+
+async function previewImage(event) {
+  const file = event.currentTarget?.files?.[0];
+  const preview = document.getElementById('image-preview');
+  if (!preview) return;
+  if (!file) {
+    preview.hidden = true;
+    preview.innerHTML = '';
+    return;
+  }
+  if (file.size > 750_000) {
+    preview.hidden = false;
+    preview.innerHTML = `<strong>Zdjęcie może być za duże.</strong><span>Maksymalny rozmiar produkcyjny to około 750 KB. Zmniejsz plik przed wysłaniem.</span>`;
+    return;
+  }
+  const dataUrl = await fileToDataUrl(file);
+  preview.hidden = false;
+  preview.innerHTML = `<img src="${esc(dataUrl)}" alt="Podgląd zdjęcia" /><span>${esc(file.name)} · ${Math.ceil(file.size / 1024)} KB</span>`;
 }
 
 async function fileToDataUrl(file) {
@@ -258,6 +753,7 @@ async function submitListing(event) {
       body: JSON.stringify(body)
     });
     form.reset();
+    clearListingDraft();
     renderTurnstile('create-turnstile-slot', 'create-turnstile-token');
     if (message) {
       message.hidden = false;
@@ -269,11 +765,13 @@ async function submitListing(event) {
         </div>
       `;
     }
+    bindSubmissionVaultActions();
     try {
       localStorage.setItem('sprzedam_last_submission', JSON.stringify({
         message: payload.message,
         listing: payload.listing,
-        links: payload.links
+        links: payload.links,
+        saved_at: new Date().toISOString()
       }));
     } catch {
       // Best effort only.
@@ -289,62 +787,107 @@ async function submitListing(event) {
   }
 }
 
+function currentListingSlug() {
+  const fromQuery = new URLSearchParams(window.location.search).get('slug');
+  if (fromQuery) return fromQuery;
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  return parts[0] === 'ogloszenie' ? decodeURIComponent(parts[1] || '') : '';
+}
+
 async function initListingPage() {
   await loadSiteConfig();
   const root = document.getElementById('detail-root');
-  const slug = new URLSearchParams(window.location.search).get('slug');
+  const slug = currentListingSlug();
   if (!slug) {
     root.innerHTML = '<div class="status-note">Brak identyfikatora ogłoszenia.</div>';
     return;
   }
   const payload = await fetchJson(`/listings/${encodeURIComponent(slug)}`);
   const listing = payload.item;
-  document.title = `${listing.title} - ${config.siteName || 'Sprzedam Kłodzko'}`;
-  const description = document.querySelector('meta[name="description"]');
-  if (description) description.setAttribute('content', listing.description.slice(0, 160));
   const image = listing.image_base64 ? `data:${listing.image_mime || 'image/jpeg'};base64,${listing.image_base64}` : '';
+  const publicUrl = `${window.location.origin}/ogloszenie/${encodeURIComponent(listing.slug)}`;
+  const publishedDate = new Date(listing.created_at).toLocaleDateString('pl-PL');
+  const expiresDate = listing.expires_at ? new Date(listing.expires_at).toLocaleDateString('pl-PL') : 'brak danych';
+  updateListingMeta(listing, publicUrl, image);
   root.innerHTML = `
-    <div class="detail-hero">
-      <div class="detail-media">
-        ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : ''}
+    <div class="detail-hero detail-hero-v2">
+      <div class="detail-media-wrap">
+        <div class="detail-media">
+          ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : '<div class="no-image">Brak zdjęcia</div>'}
+        </div>
+        <div class="detail-trust-grid">
+          <div><strong>Moderowane</strong><span>Ogłoszenie przeszło kontrolę treści.</span></div>
+          <div><strong>Kontakt chroniony</strong><span>Dane pokazujemy po weryfikacji anty-bot.</span></div>
+          <div><strong>Lokalnie</strong><span>${esc(listing.city || 'Kłodzko')} i okolice.</span></div>
+        </div>
       </div>
-      <aside class="detail-panel">
+      <aside class="detail-panel detail-panel-v2">
         <div class="pill-row">
           <span class="pill">${esc(listing.type)}</span>
           <span class="pill gray">${esc(listing.category)}</span>
+          ${listing.is_featured ? '<span class="pill featured-pill">Wyróżnione</span>' : ''}
         </div>
         <h1 class="detail-title">${esc(listing.title)}</h1>
         <div class="detail-price">${money(listing.price_cents, listing.currency)}</div>
-        <div class="detail-meta">
-          <span class="pill gray">${esc(listing.city || 'Kłodzko')}</span>
-          <span class="pill gray">${new Date(listing.created_at).toLocaleDateString('pl-PL')}</span>
+        <dl class="detail-facts">
+          <div><dt>Miejscowość</dt><dd>${esc(listing.city || 'Kłodzko')}</dd></div>
+          <div><dt>Dodano</dt><dd>${esc(publishedDate)}</dd></div>
+          <div><dt>Wygasa</dt><dd>${esc(expiresDate)}</dd></div>
+          <div><dt>Zgłoszenia</dt><dd>${esc(listing.report_count || 0)}</dd></div>
+        </dl>
+        <div class="contact-reveal contact-card-v2" id="contact-card">
+          <span class="eyebrow">Kontakt ze sprzedającym</span>
+          <strong>Pokaż dane dopiero, gdy chcesz realnie rozmawiać.</strong>
+          <p class="status-note">Chronimy adres e-mail i telefon przed automatycznym zeskrobywaniem. Po weryfikacji możesz napisać albo zadzwonić.</p>
+          <div class="turnstile-slot" id="contact-turnstile-slot"></div>
+          <input type="hidden" id="contact-turnstile-token" />
+          <button class="button primary" id="contact-reveal-button" type="button">Pokaż kontakt</button>
         </div>
-        <div>
-          <strong>Kontakt</strong>
-          <p>${esc(listing.contact_name || '')}<br />${esc(listing.contact_email || '')}${listing.contact_phone ? `<br />${esc(listing.contact_phone)}` : ''}</p>
-        </div>
-        <div class="pill-row">
-          <span class="tag ok">Aktywne</span>
-          <span class="tag">${esc(listing.report_count || 0)} zgłoszeń</span>
+        <div class="detail-action-row">
+          <button class="button ghost" id="share-button" type="button">Kopiuj link</button>
+          <button class="button ghost danger-action" id="report-button" type="button">Zgłoś naruszenie</button>
         </div>
       </aside>
     </div>
-    <div class="detail-copy">
-      <span class="eyebrow">Opis</span>
-      <p>${esc(listing.description).replace(/\n/g, '<br />')}</p>
+    <div class="detail-content-grid">
+      <article class="detail-copy detail-copy-card">
+        <span class="eyebrow">Opis ogłoszenia</span>
+        <p>${esc(listing.description).replace(/\n/g, '<br />')}</p>
+      </article>
+      <aside class="buyer-checklist">
+        <span class="eyebrow">Przed kontaktem</span>
+        <h2>Trzy szybkie kontrole.</h2>
+        <ol>
+          <li><strong>Porównaj cenę</strong><span>Za niska cena to często sygnał ostrzegawczy.</span></li>
+          <li><strong>Ustal odbiór lokalny</strong><span>Najbezpieczniej spotkać się w publicznym miejscu.</span></li>
+          <li><strong>Nie wysyłaj zaliczek</strong><span>Jeśli coś wygląda podejrzanie, użyj zgłoszenia.</span></li>
+        </ol>
+      </aside>
     </div>
-    <div class="detail-footer">
-      <a class="button ghost" href="/">Wróć do listy</a>
-      <button class="button primary" id="report-button">Zgłoś naruszenie</button>
-    </div>
-    <form id="report-form" class="form-grid" hidden>
+    <section class="safety-card safety-card-v2">
+      <div>
+        <span class="eyebrow">Bezpieczny kontakt</span>
+        <h2>Serwis pomaga filtrować spam, ale transakcję weryfikujesz Ty.</h2>
+      </div>
+      <div class="safety-points">
+        <span>Nie klikaj podejrzanych linków od sprzedającego.</span>
+        <span>Nie podawaj kodów BLIK ani danych logowania.</span>
+        <span>Zgłoś ofertę, jeśli kontakt próbuje przenieść rozmowę na dziwne płatności.</span>
+      </div>
+    </section>
+    <form id="report-form" class="form-grid report-card" hidden>
+      <div class="full report-head">
+        <span class="eyebrow">Zgłoszenie</span>
+        <h2>Pomóż utrzymać lokalny rynek w czystości.</h2>
+        <p class="status-note">Zgłoszenie trafia do moderacji i zwiększa licznik ryzyka dla ogłoszenia.</p>
+      </div>
       <label class="full">
         <span>Powód zgłoszenia</span>
-        <input name="reason" class="input" required />
+        <input name="reason" class="input" required placeholder="np. oszustwo, spam, nielegalna treść" />
       </label>
       <label class="full">
         <span>Szczegóły</span>
-        <textarea name="details" class="input textarea"></textarea>
+        <textarea name="details" class="input textarea" placeholder="Co dokładnie wygląda podejrzanie?"></textarea>
       </label>
       <label class="full">
         <span>E-mail (opcjonalnie)</span>
@@ -355,7 +898,76 @@ async function initListingPage() {
       <button class="button primary" type="submit">Wyślij zgłoszenie</button>
     </form>
     <pre class="message" id="report-message" hidden></pre>
+    <div class="detail-footer">
+      <a class="button ghost" href="/">Wróć do listy</a>
+      <a class="button ghost" href="/#add">Dodaj podobne ogłoszenie</a>
+    </div>
   `;
+  renderTurnstile('contact-turnstile-slot', 'contact-turnstile-token');
+  document.getElementById('share-button')?.addEventListener('click', async () => {
+    const message = document.getElementById('report-message');
+    const url = publicUrl;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: listing.title, text: plainText(listing.description, 120), url });
+      } else {
+        await navigator.clipboard.writeText(url);
+      }
+      if (message) {
+        message.hidden = false;
+        message.textContent = navigator.share ? 'Udostępnianie zakończone.' : 'Link do ogłoszenia został skopiowany.';
+      }
+    } catch {
+      if (message) {
+        message.hidden = false;
+        message.textContent = url;
+      }
+    }
+  });
+  document.getElementById('contact-reveal-button')?.addEventListener('click', async () => {
+    const message = document.getElementById('report-message');
+    const tokenInput = document.getElementById('contact-turnstile-token');
+    const turnstileToken = tokenInput?.value || '';
+    if (config.turnstileSiteKey && !turnstileToken) {
+      renderTurnstile('contact-turnstile-slot', 'contact-turnstile-token');
+      if (message) {
+        message.hidden = false;
+        message.textContent = 'Potwierdź weryfikację anty-bot, żeby wyświetlić kontakt.';
+      }
+      return;
+    }
+    try {
+      const payload = await fetchJson(`/listings/${encodeURIComponent(listing.id)}/contact`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ turnstile_token: turnstileToken })
+      });
+      const contact = payload.contact || {};
+      const card = document.getElementById('contact-card');
+      if (card) {
+        card.innerHTML = `
+          <span class="eyebrow">Kontakt odblokowany</span>
+          <strong>${esc(contact.name || 'Sprzedający')}</strong>
+          <p>${esc(contact.email || '')}${contact.phone ? `<br />${esc(contact.phone)}` : ''}</p>
+          <div class="hero-actions">
+            <a class="button small primary" href="mailto:${esc(contact.email || '')}">Napisz e-mail</a>
+            ${contact.phone ? `<a class="button small ghost" href="tel:${esc(contact.phone)}">Zadzwoń</a>` : ''}
+          </div>
+          <span class="status-note">Nie wysyłaj zaliczek ani kodów płatności przed weryfikacją sprzedającego.</span>
+        `;
+      }
+      if (message) {
+        message.hidden = false;
+        message.textContent = 'Kontakt został wyświetlony.';
+      }
+    } catch (error) {
+      if (message) {
+        message.hidden = false;
+        message.textContent = error.message || String(error);
+      }
+      renderTurnstile('contact-turnstile-slot', 'contact-turnstile-token');
+    }
+  });
   document.getElementById('report-button')?.addEventListener('click', () => {
     const form = document.getElementById('report-form');
     form.hidden = !form.hidden;
@@ -415,16 +1027,90 @@ function restoreLastSubmission() {
       <div class="submission-meta">
         <span>Ogłoszenie: ${esc(data.listing?.title || '')}</span>
         <span>Stan: ${esc(data.listing?.status || '')}</span>
+        ${data.saved_at ? `<span>Zapisano: ${esc(new Date(data.saved_at).toLocaleString('pl-PL'))}</span>` : ''}
       </div>
     `;
+    bindSubmissionVaultActions();
   } catch {
     // Ignore invalid cached state.
   }
 }
 
+async function verifyLastSubmission(button) {
+  const verifyUrl = button.getAttribute('data-verify-submission-link') || '';
+  if (!verifyUrl) return;
+  const status = document.getElementById('submission-status');
+  button.disabled = true;
+  const previousText = button.textContent;
+  button.textContent = 'Potwierdzam...';
+  if (status) status.textContent = 'Potwierdzanie ogłoszenia i uruchamianie moderacji...';
+  try {
+    const response = await fetch(verifyUrl, {
+      credentials: 'include',
+      headers: { accept: 'application/json' }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    button.textContent = 'Potwierdzone';
+    button.classList.remove('primary');
+    button.classList.add('ghost');
+    if (status) status.textContent = payload.message || 'Ogłoszenie jest potwierdzone i czeka na moderację.';
+    try {
+      const raw = localStorage.getItem('sprzedam_last_submission');
+      if (raw) {
+        const saved = JSON.parse(raw);
+        saved.verification_done = true;
+        saved.verified_at = new Date().toISOString();
+        saved.message = payload.message || saved.message;
+        localStorage.setItem('sprzedam_last_submission', JSON.stringify(saved));
+      }
+    } catch {
+      // Best effort only.
+    }
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = previousText || 'Potwierdź teraz';
+    if (status) status.textContent = error.message || String(error);
+  }
+}
+
+function bindSubmissionVaultActions() {
+  document.querySelectorAll('[data-copy-submission-link]').forEach((button) => {
+    if (button.dataset.boundCopy === '1') return;
+    button.dataset.boundCopy = '1';
+    button.addEventListener('click', async () => {
+      const value = button.getAttribute('data-copy-submission-link') || '';
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        button.textContent = 'Skopiowano';
+      } catch {
+        window.prompt('Skopiuj link:', value);
+      }
+    });
+  });
+  document.querySelectorAll('[data-verify-submission-link]').forEach((button) => {
+    if (button.dataset.boundVerify === '1') return;
+    button.dataset.boundVerify = '1';
+    button.addEventListener('click', () => verifyLastSubmission(button));
+  });
+  document.getElementById('clear-last-submission')?.addEventListener('click', () => {
+    localStorage.removeItem('sprzedam_last_submission');
+    const message = document.getElementById('form-message');
+    if (message) {
+      message.hidden = true;
+      message.innerHTML = '';
+    }
+  }, { once: true });
+}
+
 if (document.getElementById('listing-form')) {
   restoreLastSubmission();
   initIndex().catch(showError);
+} else if (document.getElementById('category-root')) {
+  initCategoryPage().catch(showError);
 } else if (document.getElementById('detail-root')) {
   initListingPage().catch(showError);
 }

@@ -5,6 +5,7 @@ minify = true
 
 [vars]
 SITE_NAME = "Sprzedam Kłodzko"
+APP_ENV = "local"
 SITE_BASE_URL = "https://sprzedam.klodzko.pl"
 PUBLIC_API_BASE_URL = "/api"
 OPENAI_MODERATION_MODEL = "omni-moderation-latest"
@@ -25,6 +26,7 @@ name = "sprzedam-klodzko-api-dev"
 
 [env.dev.vars]
 SITE_NAME = "Sprzedam Kłodzko DEV"
+APP_ENV = "dev"
 SITE_BASE_URL = "https://sprzedam-klodzko-dev.pages.dev"
 PUBLIC_API_BASE_URL = "/api"
 OPENAI_MODERATION_MODEL = "omni-moderation-latest"
@@ -45,10 +47,14 @@ crons = []
 
 [env.prod]
 name = "sprzedam-klodzko-api-prod"
-route = { pattern = "sprzedam.klodzko.pl/api/*", zone_name = "sprzedam.klodzko.pl" }
+routes = [
+  { pattern = "sprzedam.klodzko.pl/api/*", zone_name = "sprzedam.klodzko.pl" },
+  { pattern = "sprzedam.klodzko.pl/ogloszenie/*", zone_name = "sprzedam.klodzko.pl" }
+]
 
 [env.prod.vars]
 SITE_NAME = "Sprzedam Kłodzko"
+APP_ENV = "prod"
 SITE_BASE_URL = "https://sprzedam.klodzko.pl"
 PUBLIC_API_BASE_URL = "/api"
 OPENAI_MODERATION_MODEL = "omni-moderation-latest"

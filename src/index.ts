@@ -80,6 +80,9 @@ type ListingRow = {
   deleted_reason: string | null;
   archived_at: string | null;
   archived_reason: string | null;
+  featured_at: string | null;
+  featured_until: string | null;
+  featured_reason: string | null;
   version: number;
   created_from_ip: string | null;
   updated_from_ip: string | null;
@@ -110,6 +113,16 @@ type AdminSessionRow = {
   last_seen_at: string;
 };
 
+type ListingTimelineItem = {
+  kind: 'event' | 'archive' | 'revision';
+  label: string;
+  source?: string | null;
+  reason?: string | null;
+  version?: number | null;
+  created_at: string;
+  details?: unknown;
+};
+
 type ModerationResponse = {
   results?: Array<{
     flagged?: boolean;
@@ -120,11 +133,13 @@ type ModerationResponse = {
 
 type Env = {
   DB: D1Database;
+  APP_ENV?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODERATION_MODEL?: string;
   NTFY_TOPIC_URL?: string;
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
+  E2E_TURNSTILE_BYPASS_TOKEN?: string;
   ADMIN_USERNAME: string;
   ADMIN_PASSWORD: string;
   ADMIN_TOTP_SECRET: string;
@@ -170,9 +185,23 @@ function cfg(env: Env) {
   };
 }
 
+function imageUploadJsonLimit(env: Env) {
+  return cfg(env).maxImageBytes * 2 + 32_000;
+}
+
+function parseJsonSafe(value: string | null) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 const THROTTLES = {
   listingCreate: { limit: 5, windowMinutes: 60 },
   reportCreate: { limit: 20, windowMinutes: 60 },
+  contactReveal: { limit: 30, windowMinutes: 60 },
   adminLogin: { limit: 10, windowMinutes: 10 }
 } as const;
 
@@ -223,6 +252,10 @@ function isApiRoute(pathname: string) {
 
 function isAdminApiRoute(pathname: string) {
   return pathname.startsWith('/api/admin/');
+}
+
+function isListingPageRoute(pathname: string) {
+  return pathname.startsWith('/ogloszenie/');
 }
 
 function adminAllowed(request: Request, env: Env) {
@@ -455,7 +488,8 @@ function listingBaseSelect() {
     contact_name, contact_email, contact_phone, contact_consent, image_base64, image_mime,
     owner_email, owner_email_normalized, owner_token_hash, owner_token_hint, verification_token_hash,
     approval_token_hash, verification_expires_at, approval_expires_at, verified_at, approved_at, published_at,
-    expires_at, reminder_sent_at, deleted_at, deleted_reason, archived_at, archived_reason, version,
+    expires_at, reminder_sent_at, deleted_at, deleted_reason, archived_at, archived_reason,
+    featured_at, featured_until, featured_reason, version,
     created_from_ip, updated_from_ip, created_at, updated_at
   `;
 }
@@ -467,7 +501,7 @@ async function fetchListingByIdOrSlug(env: Env, value: string) {
 }
 
 async function fetchListingByTokenPurpose(env: Env, token: string, purpose: 'manage_listing' | 'extend_listing') {
-  const tokenHash = await sha256Hex(token);
+  const tokenHash = await hashToken(token);
   const tokenRow = await env.DB.prepare(
     `SELECT * FROM tokens WHERE token_hash = ? AND purpose = ? AND used_at IS NULL AND expires_at > ? LIMIT 1`
   )
@@ -518,32 +552,68 @@ async function consumeToken(env: Env, token: string, purpose: TokenRow['purpose'
   return row;
 }
 
-async function queueModerationJob(env: Env, listingId: string, jobType: 'listing' | 'report' | 'reminder' | 'expiry', payload: Record<string, unknown>, reportId?: string | null) {
+async function queueModerationJob(
+  env: Env,
+  listingId: string,
+  jobType: 'listing' | 'report' | 'reminder' | 'expiry',
+  payload: Record<string, unknown>,
+  reportId?: string | null,
+  jobId = crypto.randomUUID()
+) {
   const now = nowIso();
-  const id = crypto.randomUUID();
   await env.DB.prepare(
     `INSERT INTO moderation_jobs (id, listing_id, report_id, job_type, status, attempts, run_after, payload_json, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)`
   )
-    .bind(id, listingId, reportId || null, jobType, now, JSON.stringify(payload), now, now)
+    .bind(jobId, listingId, reportId || null, jobType, now, JSON.stringify(payload), now, now)
     .run();
-  return id;
+  return jobId;
+}
+
+function toAsciiHeaderValue(value: string, fallback: string) {
+  const normalized = value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim()
+    .slice(0, 160);
+  return normalized || fallback;
 }
 
 async function notifyNtfy(env: Env, title: string, message: string) {
   if (!env.NTFY_TOPIC_URL) return;
-  await fetch(env.NTFY_TOPIC_URL, {
+  const response = await fetch(env.NTFY_TOPIC_URL, {
     method: 'POST',
     headers: {
-      title,
+      title: toAsciiHeaderValue(title, 'Sprzedam Klodzko'),
       priority: '3'
     },
     body: message
   });
+  if (!response.ok) {
+    throw new Error(`ntfy error ${response.status}: ${await response.text()}`);
+  }
+}
+
+async function safeNotifyNtfy(env: Env, title: string, message: string, context: Record<string, unknown> = {}) {
+  try {
+    await notifyNtfy(env, title, message);
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: 'warn',
+      message: 'ntfy notification failed',
+      title,
+      context,
+      error: String(error)
+    }));
+  }
 }
 
 async function verifyTurnstileIfConfigured(env: Env, token: string, ipAddress: string) {
   if (!env.TURNSTILE_SECRET_KEY) return;
+  if (env.APP_ENV !== 'prod' && env.E2E_TURNSTILE_BYPASS_TOKEN && timingSafeEqual(token, env.E2E_TURNSTILE_BYPASS_TOKEN)) {
+    return;
+  }
   if (!token) {
     throw new HttpError(400, 'Potwierdź weryfikację anty-bot');
   }
@@ -697,11 +767,109 @@ function listingToPublicJson(listing: ListingRow) {
     image_base64: listing.image_base64,
     image_mime: listing.image_mime,
     report_count: listing.report_count,
+    is_featured: Boolean(listing.featured_until && new Date(listing.featured_until).getTime() > Date.now()),
+    featured_until: listing.featured_until,
     created_at: listing.created_at,
     approved_at: listing.approved_at,
     expires_at: listing.expires_at,
     reminder_sent_at: listing.reminder_sent_at,
     updated_at: listing.updated_at
+  };
+}
+
+function listingToPublicSummaryJson(listing: ListingRow) {
+  const item = listingToPublicJson(listing) as Record<string, unknown>;
+  delete item.contact_name;
+  delete item.contact_email;
+  delete item.contact_phone;
+  return item;
+}
+
+function listingToPublicDetailJson(listing: ListingRow) {
+  return {
+    ...listingToPublicSummaryJson(listing),
+    contact_available: true,
+    has_contact_phone: Boolean(listing.contact_phone)
+  };
+}
+
+function listingPublicationStatus(env: Env, listing: ListingRow) {
+  const publicUrl = buildAbsoluteUrl(cfg(env).siteBaseUrl, `/ogloszenie/${listing.slug}`);
+  if (listing.status === 'approved') {
+    return {
+      state: 'live',
+      label: 'Opublikowane',
+      tone: 'ok',
+      summary: 'Ogłoszenie jest widoczne publicznie.',
+      detail: listing.expires_at ? `Publikacja wygasa ${toPrettyDate(listing.expires_at)}.` : 'Publikacja nie ma ustawionej daty wygaśnięcia.',
+      next_steps: ['Możesz udostępnić link publiczny.', 'Możesz edytować ogłoszenie, ale po edycji wróci do moderacji.', 'Przedłuż ogłoszenie przed wygaśnięciem.'],
+      public_url: publicUrl,
+      can_edit: true,
+      can_extend: true
+    };
+  }
+  if (listing.status === 'pending' && !listing.verified_at) {
+    return {
+      state: 'needs_verification',
+      label: 'Wymaga potwierdzenia',
+      tone: 'warn',
+      summary: 'Ogłoszenie jest zapisane, ale nie trafiło jeszcze do moderacji.',
+      detail: 'Użyj linku weryfikacyjnego, który pokazaliśmy po dodaniu ogłoszenia.',
+      next_steps: ['Otwórz link weryfikacyjny zapisany po dodaniu ogłoszenia.', 'Po potwierdzeniu ogłoszenie automatycznie trafi do moderacji.'],
+      public_url: null,
+      can_edit: false,
+      can_extend: false
+    };
+  }
+  if (listing.status === 'pending') {
+    return {
+      state: 'moderation',
+      label: 'W moderacji',
+      tone: 'warn',
+      summary: 'Ogłoszenie czeka na automatyczną lub ręczną moderację.',
+      detail: listing.moderation_reason || 'Po akceptacji zostanie opublikowane automatycznie.',
+      next_steps: ['Nie musisz nic robić.', 'Odśwież ten ekran za chwilę, żeby sprawdzić wynik.', 'Jeśli edytowałeś ogłoszenie, nowa wersja też przechodzi moderację.'],
+      public_url: null,
+      can_edit: false,
+      can_extend: false
+    };
+  }
+  if (listing.status === 'rejected') {
+    return {
+      state: 'rejected',
+      label: 'Odrzucone',
+      tone: 'bad',
+      summary: 'Ogłoszenie nie zostało opublikowane.',
+      detail: listing.moderation_reason || listing.archived_reason || 'Moderacja odrzuciła treść ogłoszenia.',
+      next_steps: ['Sprawdź powód odrzucenia.', 'Dodaj nowe ogłoszenie z poprawioną treścią, jeśli chcesz spróbować ponownie.'],
+      public_url: null,
+      can_edit: false,
+      can_extend: false
+    };
+  }
+  if (listing.status === 'expired') {
+    return {
+      state: 'expired',
+      label: 'Wygasłe',
+      tone: 'warn',
+      summary: 'Ogłoszenie nie jest już widoczne publicznie.',
+      detail: listing.expires_at ? `Wygasło ${toPrettyDate(listing.expires_at)}.` : 'Termin publikacji minął.',
+      next_steps: ['Użyj przycisku przedłużenia, jeśli chcesz ponownie opublikować ogłoszenie.'],
+      public_url: null,
+      can_edit: false,
+      can_extend: false
+    };
+  }
+  return {
+    state: 'archived',
+    label: 'Archiwum',
+    tone: 'bad',
+    summary: 'Ogłoszenie jest zarchiwizowane i nie jest widoczne publicznie.',
+    detail: listing.deleted_reason || listing.archived_reason || 'Ogłoszenie zostało zdjęte z publikacji.',
+    next_steps: ['Jeśli chcesz wystawić ofertę ponownie, dodaj nowe ogłoszenie.'],
+    public_url: null,
+    can_edit: false,
+    can_extend: false
   };
 }
 
@@ -733,6 +901,77 @@ async function createArchiveSnapshot(env: Env, listing: ListingRow, reason: stri
   )
     .bind(crypto.randomUUID(), listing.id, listing.version, snapshot, reason, source, nowIso())
     .run();
+}
+
+async function createRevisionSnapshot(env: Env, listing: ListingRow, reason: string) {
+  await env.DB.prepare(
+    `INSERT INTO listing_revisions (id, listing_id, version, snapshot_json, archived_reason, archived_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(crypto.randomUUID(), listing.id, listing.version, JSON.stringify(listing), reason, nowIso(), nowIso())
+    .run();
+}
+
+async function fetchListingTimeline(env: Env, listingId: string, includeSnapshots = false) {
+  const events = await env.DB.prepare(
+    `SELECT event_type, actor_type, actor_id, details_json, created_at
+     FROM event_logs
+     WHERE listing_id = ?
+     ORDER BY created_at DESC
+     LIMIT 60`
+  )
+    .bind(listingId)
+    .all<{ event_type: string; actor_type: string; actor_id: string | null; details_json: string | null; created_at: string }>();
+
+  const timeline: ListingTimelineItem[] = (events.results || []).map((event) => ({
+    kind: 'event',
+    label: event.event_type,
+    source: event.actor_type,
+    reason: event.actor_id,
+    created_at: event.created_at,
+    details: parseJsonSafe(event.details_json)
+  }));
+
+  if (includeSnapshots) {
+    const [archives, revisions] = await Promise.all([
+      env.DB.prepare(
+        `SELECT version, reason, source, archived_at
+         FROM listing_archives
+         WHERE listing_id = ?
+         ORDER BY archived_at DESC
+         LIMIT 30`
+      ).bind(listingId).all<{ version: number; reason: string | null; source: string | null; archived_at: string }>(),
+      env.DB.prepare(
+        `SELECT version, archived_reason, archived_at, created_at
+         FROM listing_revisions
+         WHERE listing_id = ?
+         ORDER BY created_at DESC
+         LIMIT 30`
+      ).bind(listingId).all<{ version: number; archived_reason: string | null; archived_at: string; created_at: string }>()
+    ]);
+
+    for (const archive of archives.results || []) {
+      timeline.push({
+        kind: 'archive',
+        label: 'snapshot.archived',
+        source: archive.source,
+        reason: archive.reason,
+        version: archive.version,
+        created_at: archive.archived_at
+      });
+    }
+    for (const revision of revisions.results || []) {
+      timeline.push({
+        kind: 'revision',
+        label: 'snapshot.revision',
+        reason: revision.archived_reason,
+        version: revision.version,
+        created_at: revision.created_at || revision.archived_at
+      });
+    }
+  }
+
+  return timeline.sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
 async function setListingStatus(env: Env, listingId: string, status: ListingRow['status'], extra: Record<string, unknown> = {}) {
@@ -832,7 +1071,12 @@ async function markTokenUsed(env: Env, tokenHash: string) {
 }
 
 async function sendNtFYNewListing(env: Env, listing: ListingRow) {
-  await notifyNtfy(env, `Nowe ogłoszenie: ${listing.title}`, `${listing.type} / ${listing.category} / ${formatMoney(listing.price_cents, listing.currency)}`);
+  await safeNotifyNtfy(
+    env,
+    `Nowe ogłoszenie: ${listing.title}`,
+    `${listing.type} / ${listing.category} / ${formatMoney(listing.price_cents, listing.currency)}`,
+    { listing_id: listing.id }
+  );
 }
 
 async function processModerationJobs(env: Env) {
@@ -943,7 +1187,12 @@ async function processModerationJobs(env: Env) {
         await env.DB.prepare(`UPDATE listings SET reminder_sent_at = ?, updated_at = ? WHERE id = ?`)
           .bind(nowIso(), nowIso(), listing.id)
           .run();
-        await notifyNtfy(env, 'Przypomnienie o wygaśnięciu ogłoszenia', `${listing.title} wygaśnie wkrótce. Sprawdź panel zarządzania lub panel admina.`);
+        await safeNotifyNtfy(
+          env,
+          'Przypomnienie o wygaśnięciu ogłoszenia',
+          `${listing.title} wygaśnie wkrótce. Sprawdź panel zarządzania lub panel admina.`,
+          { listing_id: listing.id, job_id: job.id }
+        );
       }
 
       if (job.job_type === 'expiry') {
@@ -1006,14 +1255,16 @@ async function processExpiryAndReminders(env: Env) {
 
 async function handlePublicList(request: Request, env: Env) {
   const url = new URL(request.url);
-  const { q, category, type, page, limit } = parseListSearchParams(url);
+  const { q, category, type, minPriceCents, maxPriceCents, sort, page, limit } = parseListSearchParams(url);
+  const featuredOnly = url.searchParams.get('featured') === '1' || url.searchParams.get('featured') === 'true';
+  const now = nowIso();
   const offset = (page - 1) * limit;
   const where: string[] = [
     `status = 'approved'`,
     `deleted_at IS NULL`,
     `(expires_at IS NULL OR expires_at > ?)`
   ];
-  const binds: unknown[] = [nowIso()];
+  const binds: unknown[] = [now];
   if (category && CATEGORIES.includes(category as typeof CATEGORIES[number])) {
     where.push('category = ?');
     binds.push(category);
@@ -1026,19 +1277,39 @@ async function handlePublicList(request: Request, env: Env) {
     where.push('(LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?))');
     binds.push(`%${q}%`, `%${q}%`);
   }
+  if (Number.isFinite(minPriceCents)) {
+    where.push('price_cents >= ?');
+    binds.push(minPriceCents);
+  }
+  if (Number.isFinite(maxPriceCents)) {
+    where.push('price_cents <= ?');
+    binds.push(maxPriceCents);
+  }
+  if (featuredOnly) {
+    where.push('featured_until IS NOT NULL AND featured_until > ?');
+    binds.push(now);
+  }
+  const orderBy = {
+    newest: 'CASE WHEN featured_until IS NOT NULL AND featured_until > ? THEN 0 ELSE 1 END ASC, featured_until DESC, approved_at DESC, created_at DESC',
+    oldest: 'approved_at ASC, created_at ASC',
+    price_asc: 'CASE WHEN featured_until IS NOT NULL AND featured_until > ? THEN 0 ELSE 1 END ASC, price_cents ASC, approved_at DESC',
+    price_desc: 'CASE WHEN featured_until IS NOT NULL AND featured_until > ? THEN 0 ELSE 1 END ASC, price_cents DESC, approved_at DESC'
+  }[sort] || 'approved_at DESC, created_at DESC';
+  const orderBinds = orderBy.includes('?') ? [now] : [];
   const total = await env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE ${where.join(' AND ')}`).bind(...binds).first<{ count: number }>();
   const rows = await env.DB.prepare(
-    `SELECT ${listingBaseSelect()} FROM listings WHERE ${where.join(' AND ')} ORDER BY approved_at DESC, created_at DESC LIMIT ? OFFSET ?`
+    `SELECT ${listingBaseSelect()} FROM listings WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
   )
-    .bind(...binds, limit, offset)
+    .bind(...binds, ...orderBinds, limit, offset)
     .all<ListingRow>();
 
   return json({
     ok: true,
     page,
     limit,
+    sort,
     total: total?.count || 0,
-    items: (rows.results || []).map(listingToPublicJson)
+    items: (rows.results || []).map(listingToPublicSummaryJson)
   });
 }
 
@@ -1047,7 +1318,135 @@ async function handlePublicDetail(env: Env, identifier: string) {
   if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now())) {
     throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
   }
-  return json({ ok: true, item: listingToPublicJson(listing) });
+  return json({ ok: true, item: listingToPublicDetailJson(listing) });
+}
+
+async function handleListingImage(env: Env, identifier: string) {
+  const listing = await fetchListingByIdOrSlug(env, identifier);
+  if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now()) || !listing.image_base64) {
+    throw new HttpError(404, 'Obraz ogłoszenia nie został znaleziony');
+  }
+  const binary = Uint8Array.from(atob(listing.image_base64), (char) => char.charCodeAt(0));
+  return new Response(binary, {
+    headers: {
+      'content-type': listing.image_mime || 'image/jpeg',
+      'cache-control': 'public, max-age=86400'
+    }
+  });
+}
+
+async function handleListingPage(request: Request, env: Env) {
+  const url = new URL(request.url);
+  const slug = decodeURIComponent(url.pathname.split('/').filter(Boolean)[1] || '');
+  const listing = slug ? await fetchListingByIdOrSlug(env, slug) : null;
+  if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now())) {
+    return new Response('Ogłoszenie nie zostało znalezione', { status: 404, headers: baseHeaders(securityHeaders()) });
+  }
+  const cfgValue = cfg(env);
+  const canonicalUrl = buildAbsoluteUrl(cfgValue.siteBaseUrl, `/ogloszenie/${listing.slug}`);
+  const title = `${listing.title} - ${cfgValue.siteName}`;
+  const description = buildMetaDescription(listing.title, listing.description);
+  const imageUrl = listing.image_base64 ? buildAbsoluteUrl(cfgValue.siteBaseUrl, `/api/listings/${listing.id}/image`) : '';
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: listing.title,
+    description,
+    image: imageUrl || undefined,
+    category: listing.category,
+    offers: {
+      '@type': 'Offer',
+      price: ((listing.price_cents || 0) / 100).toFixed(2),
+      priceCurrency: listing.currency || 'PLN',
+      availability: 'https://schema.org/InStock',
+      url: canonicalUrl,
+      areaServed: listing.city || 'Kłodzko',
+      validThrough: listing.expires_at || undefined
+    }
+  };
+  const jsonLdText = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
+  const html = `<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
+    <meta property="og:type" content="article" />
+    ${imageUrl ? `<meta property="og:image" content="${escapeHtml(imageUrl)}" />` : ''}
+    <meta name="twitter:card" content="${imageUrl ? 'summary_large_image' : 'summary'}" />
+    <script type="application/ld+json" id="listing-jsonld">${jsonLdText}</script>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/config.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="page-bg"></div>
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="/">
+          <span class="brand-mark">K</span>
+          <span>
+            <strong id="site-name">${escapeHtml(cfgValue.siteName)}</strong>
+            <small>Ogłoszenie</small>
+          </span>
+        </a>
+        <nav class="nav">
+          <a href="/">Wróć do listy</a>
+          <a href="/admin/">Admin</a>
+        </nav>
+      </div>
+    </header>
+    <main class="shell">
+      <section class="card detail-wrap" id="detail-root">
+        <div class="status-note">Ładowanie szczegółów...</div>
+      </section>
+    </main>
+  </body>
+</html>`;
+  return new Response(html, {
+    headers: baseHeaders({
+      ...securityHeaders(),
+      'content-type': 'text/html; charset=utf-8'
+    })
+  });
+}
+
+async function handleRevealListingContact(request: Request, env: Env, listingId: string) {
+  const listing = await fetchListingByIdOrSlug(env, listingId);
+  if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now())) {
+    throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
+  }
+  const body = await readJsonBody<Record<string, unknown>>(request);
+  const clientIp = getClientIp(request);
+  await checkThrottle(
+    env,
+    'contact.reveal.ip',
+    clientIp,
+    THROTTLES.contactReveal.limit,
+    THROTTLES.contactReveal.windowMinutes,
+    'Zbyt wiele prób wyświetlenia kontaktu z tego adresu IP. Spróbuj później.'
+  );
+  const turnstileToken = normalizeString(body.turnstile_token || body['cf-turnstile-response']);
+  await verifyTurnstileIfConfigured(env, turnstileToken, clientIp);
+  await logEvent(env, {
+    eventType: 'listing.contact.revealed',
+    actorType: 'visitor',
+    listingId: listing.id,
+    details: { token_required: Boolean(env.TURNSTILE_SECRET_KEY) }
+  });
+  return json({
+    ok: true,
+    contact: {
+      name: listing.contact_name,
+      email: listing.contact_email,
+      phone: listing.contact_phone
+    }
+  });
 }
 
 async function handlePublicConfig(env: Env) {
@@ -1064,8 +1463,37 @@ async function handlePublicConfig(env: Env) {
   });
 }
 
+async function handlePublicStats(env: Env) {
+  const now = nowIso();
+  const activeWhere = `status = 'approved' AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`;
+  const [total, categories, types, latest] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE ${activeWhere}`).bind(now).first<{ count: number }>(),
+    env.DB.prepare(`SELECT category, COUNT(*) AS count FROM listings WHERE ${activeWhere} GROUP BY category`).bind(now).all<{ category: string; count: number }>(),
+    env.DB.prepare(`SELECT type, COUNT(*) AS count FROM listings WHERE ${activeWhere} GROUP BY type`).bind(now).all<{ type: string; count: number }>(),
+    env.DB.prepare(`SELECT approved_at, created_at FROM listings WHERE ${activeWhere} ORDER BY approved_at DESC, created_at DESC LIMIT 1`).bind(now).first<{ approved_at: string | null; created_at: string }>()
+  ]);
+
+  const byCategory = Object.fromEntries(CATEGORIES.map((category) => [category, 0]));
+  for (const row of categories.results || []) {
+    byCategory[row.category] = row.count;
+  }
+  const byType = Object.fromEntries(LISTING_TYPES.map((type) => [type, 0]));
+  for (const row of types.results || []) {
+    byType[row.type] = row.count;
+  }
+
+  return json({
+    ok: true,
+    total_active: total?.count || 0,
+    by_category: byCategory,
+    by_type: byType,
+    latest_approved_at: latest?.approved_at || latest?.created_at || null,
+    generated_at: now
+  });
+}
+
 async function handleCreateListing(request: Request, env: Env) {
-  const body = await readJsonBody<Record<string, unknown>>(request);
+  const body = await readJsonBody<Record<string, unknown>>(request, imageUploadJsonLimit(env));
   const cfgValue = cfg(env);
   const clientIp = getClientIp(request);
   const title = normalizeString(body.title);
@@ -1191,7 +1619,11 @@ async function handleCreateListing(request: Request, env: Env) {
   if (!listingRow) throw new HttpError(500, 'Nie udało się utworzyć ogłoszenia');
 
   await updatePublisherLimits(env, ownerEmail);
-  await sendNtFYNewListing(env, listingRow);
+  try {
+    await sendNtFYNewListing(env, listingRow);
+  } catch (error) {
+    console.error(JSON.stringify({ level: 'warn', message: 'New listing notification failed', listing_id: listingRow.id, error: String(error) }));
+  }
   await logEvent(env, {
     eventType: 'listing.created',
     actorType: 'publisher',
@@ -1214,7 +1646,49 @@ async function handleCreateListing(request: Request, env: Env) {
   }, { status: 201 });
 }
 
-async function handleVerifyListing(env: Env, listingId: string, url: URL) {
+function wantsJson(request: Request) {
+  const accept = request.headers.get('accept') || '';
+  return accept.includes('application/json') || accept.includes('*/*') && !accept.includes('text/html');
+}
+
+function verificationHtml(env: Env, listing: ListingRow | null, message: string) {
+  const cfgValue = cfg(env);
+  const title = listing?.title || 'Ogłoszenie potwierdzone';
+  const html = `<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Ogłoszenie potwierdzone - ${escapeHtml(cfgValue.siteName)}</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-bg"></div>
+    <main class="shell legal-page">
+      <section class="legal-card">
+        <a href="/" class="back-link">Wróć do strony głównej</a>
+        <span class="eyebrow">Weryfikacja ogłoszenia</span>
+        <h1>${escapeHtml(title)}</h1>
+        <p>${escapeHtml(message)}</p>
+        <p>Jeżeli zapisałeś link zarządzania, otwórz go teraz, żeby śledzić status moderacji i później edytować albo usunąć ogłoszenie.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="/">Przejdź do ogłoszeń</a>
+          <a class="button ghost" href="/#add">Dodaj kolejne ogłoszenie</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>`;
+  return new Response(html, {
+    headers: baseHeaders({
+      ...securityHeaders(),
+      'content-type': 'text/html; charset=utf-8'
+    })
+  });
+}
+
+async function handleVerifyListing(request: Request, env: Env, listingId: string, url: URL) {
   const token = url.searchParams.get('token') || '';
   if (!token) throw new HttpError(400, 'Brak tokenu');
   const tokenHash = await hashToken(token);
@@ -1234,9 +1708,13 @@ async function handleVerifyListing(env: Env, listingId: string, url: URL) {
     .run();
   await queueModerationJob(env, listingId, 'listing', { listingId });
   await logEvent(env, { eventType: 'listing.verified', actorType: 'publisher', listingId, details: { token_hint: tokenRow.token_hint } });
+  const message = 'Link został potwierdzony. Ogłoszenie trafiło do moderacji.';
+  if (!wantsJson(request)) {
+    return verificationHtml(env, await fetchListingByIdOrSlug(env, listingId), message);
+  }
   return json({
     ok: true,
-    message: 'Link został potwierdzony. Ogłoszenie trafiło do moderacji.'
+    message
   });
 }
 
@@ -1273,10 +1751,13 @@ async function handleManageFetch(env: Env, token: string) {
   if (!managed?.listing) {
     throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
   }
+  const timeline = await fetchListingTimeline(env, managed.listing.id, false);
   return json({
     ok: true,
     token_purpose: managed.tokenRow.purpose,
-    listing: listingToPublicJson(managed.listing)
+    listing: listingToPublicJson(managed.listing),
+    publication_status: listingPublicationStatus(env, managed.listing),
+    timeline
   });
 }
 
@@ -1285,7 +1766,7 @@ async function handleManageUpdate(request: Request, env: Env, token: string) {
   if (!managed?.listing) {
     throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
   }
-  const body = await readJsonBody<Record<string, unknown>>(request);
+  const body = await readJsonBody<Record<string, unknown>>(request, imageUploadJsonLimit(env));
   const listing = managed.listing;
   if (listing.status !== 'approved') {
     throw new HttpError(409, 'Edycja jest dostępna tylko dla zatwierdzonych ogłoszeń');
@@ -1307,6 +1788,7 @@ async function handleManageUpdate(request: Request, env: Env, token: string) {
   if (!LISTING_TYPES.includes(nextType as typeof LISTING_TYPES[number])) throw new HttpError(400, 'Nieprawidłowy typ ogłoszenia');
 
   await createArchiveSnapshot(env, listing, 'Edit before re-moderation', 'edit');
+  await createRevisionSnapshot(env, listing, 'Edit before re-moderation');
   const newVersion = listing.version + 1;
   const nextSlug = `${slugify(nextTitle)}-${listing.id.slice(0, 8)}`;
   await env.DB.prepare(
@@ -1404,18 +1886,19 @@ async function handleReportListing(request: Request, env: Env, listingId: string
   const turnstileToken = normalizeString(body.turnstile_token || body['cf-turnstile-response']);
   await verifyTurnstileIfConfigured(env, turnstileToken, clientIp);
   const reportId = crypto.randomUUID();
-  const jobId = await queueModerationJob(env, listing.id, 'report', { reason, details }, reportId);
+  const jobId = crypto.randomUUID();
   await env.DB.prepare(
     `INSERT INTO listing_reports (id, listing_id, reporter_email, reporter_ip, reason, details, status, moderation_job_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`
   )
     .bind(reportId, listing.id, normalizeEmail(normalizeString(body.reporter_email)) || null, getClientIp(request), reason, details || null, jobId, nowIso())
     .run();
+  await queueModerationJob(env, listing.id, 'report', { reason, details }, reportId, jobId);
   await env.DB.prepare(`UPDATE listings SET report_count = report_count + 1, report_status = 'pending', updated_at = ? WHERE id = ?`)
     .bind(nowIso(), listing.id)
     .run();
   await logEvent(env, { eventType: 'listing.reported', actorType: 'visitor', listingId: listing.id, reportId, details: { reason } });
-  await notifyNtfy(env, 'Nowe zgłoszenie ogłoszenia', `${listing.title} - ${reason}`);
+  await safeNotifyNtfy(env, 'Nowe zgłoszenie ogłoszenia', `${listing.title} - ${reason}`, { listing_id: listing.id, report_id: reportId });
   return json({ ok: true, message: 'Zgłoszenie zostało przyjęte do analizy.' }, { status: 202 });
 }
 
@@ -1493,16 +1976,61 @@ async function handleAdminListings(request: Request, env: Env) {
     .bind(...binds, limit)
     .all<ListingRow>();
   await logAdmin(env, { adminUsername: session.username, action: 'listings.list', ipAddress: getClientIp(request), details: { status } });
-  return json({ ok: true, items: (rows.results || []).map((listing) => ({ ...listingToPublicJson(listing), moderation_reason: listing.moderation_reason })) });
+  return json({ ok: true, items: (rows.results || []).map((listing) => ({
+    ...listingToPublicJson(listing),
+    moderation_reason: listing.moderation_reason,
+    moderation_status: listing.moderation_status,
+    version: listing.version,
+    contact_name: listing.contact_name,
+    contact_email: listing.contact_email,
+    contact_phone: listing.contact_phone,
+    owner_email_normalized: listing.owner_email_normalized
+  })) });
+}
+
+async function handleAdminListingHistory(request: Request, env: Env, listingId: string) {
+  const session = await requireAdminSession(request, env);
+  const listing = await fetchListingByIdOrSlug(env, listingId);
+  if (!listing) throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
+  const timeline = await fetchListingTimeline(env, listing.id, true);
+  await logAdmin(env, {
+    adminUsername: session.username,
+    action: 'listing.history',
+    targetType: 'listing',
+    targetId: listing.id,
+    ipAddress: getClientIp(request)
+  });
+  return json({
+    ok: true,
+    listing: {
+      ...listingToPublicJson(listing),
+      moderation_reason: listing.moderation_reason,
+      moderation_status: listing.moderation_status,
+      version: listing.version,
+      owner_email_normalized: listing.owner_email_normalized
+    },
+    timeline
+  });
 }
 
 async function handleAdminReports(request: Request, env: Env) {
   const session = await requireAdminSession(request, env);
   const rows = await env.DB.prepare(
-    `SELECT r.*, l.title, l.slug, l.status AS listing_status
+    `SELECT
+       r.*,
+       l.title,
+       l.slug,
+       l.status AS listing_status,
+       l.report_count AS listing_report_count,
+       l.report_status AS listing_report_status,
+       l.moderation_reason AS listing_moderation_reason,
+       l.contact_email AS listing_contact_email
      FROM listing_reports r
      JOIN listings l ON l.id = r.listing_id
-     ORDER BY r.created_at DESC LIMIT 100`
+     ORDER BY
+       CASE r.status WHEN 'pending' THEN 0 WHEN 'processed' THEN 1 ELSE 2 END,
+       r.created_at DESC
+     LIMIT 100`
   ).all();
   await logAdmin(env, { adminUsername: session.username, action: 'reports.list', ipAddress: getClientIp(request) });
   return json({ ok: true, items: rows.results || [] });
@@ -1526,6 +2054,230 @@ async function handleAdminUsers(request: Request, env: Env) {
   return json({ ok: true, items: rows.results || [] });
 }
 
+async function handleAdminSecurity(request: Request, env: Env) {
+  const session = await requireAdminSession(request, env);
+  const since24h = hoursFromNow(-24);
+  const since7d = daysFromNow(-7);
+  const [
+    contact24h,
+    contactListings24h,
+    topContactListings,
+    recentContactReveals,
+    throttleCounters,
+    hotThrottleCounters
+  ] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM event_logs
+       WHERE event_type = 'listing.contact.revealed' AND created_at >= ?`
+    ).bind(since24h).first<{ count: number }>(),
+    env.DB.prepare(
+      `SELECT COUNT(DISTINCT listing_id) AS count
+       FROM event_logs
+       WHERE event_type = 'listing.contact.revealed' AND created_at >= ? AND listing_id IS NOT NULL`
+    ).bind(since24h).first<{ count: number }>(),
+    env.DB.prepare(
+      `SELECT e.listing_id, l.title, l.slug, l.status, COUNT(*) AS reveals, MAX(e.created_at) AS last_revealed_at
+       FROM event_logs e
+       LEFT JOIN listings l ON l.id = e.listing_id
+       WHERE e.event_type = 'listing.contact.revealed' AND e.created_at >= ?
+       GROUP BY e.listing_id, l.title, l.slug, l.status
+       ORDER BY reveals DESC, last_revealed_at DESC
+       LIMIT 10`
+    ).bind(since24h).all(),
+    env.DB.prepare(
+      `SELECT e.id, e.listing_id, e.actor_type, e.actor_id, e.details_json, e.created_at,
+              l.title, l.slug, l.status
+       FROM event_logs e
+       LEFT JOIN listings l ON l.id = e.listing_id
+       WHERE e.event_type = 'listing.contact.revealed'
+       ORDER BY e.created_at DESC
+       LIMIT 50`
+    ).all(),
+    env.DB.prepare(
+      `SELECT scope, throttle_key, window_start, request_count, last_seen_at, created_at
+       FROM request_throttle_counters
+       WHERE last_seen_at >= ?
+       ORDER BY last_seen_at DESC
+       LIMIT 100`
+    ).bind(since7d).all(),
+    env.DB.prepare(
+      `SELECT scope, throttle_key, window_start, request_count, last_seen_at, created_at
+       FROM request_throttle_counters
+       WHERE last_seen_at >= ?
+       ORDER BY request_count DESC, last_seen_at DESC
+       LIMIT 25`
+    ).bind(since24h).all()
+  ]);
+  await logAdmin(env, { adminUsername: session.username, action: 'security.view', ipAddress: getClientIp(request) });
+  return json({
+    ok: true,
+    generated_at: nowIso(),
+    windows: {
+      contact_reveals_since: since24h,
+      throttle_counters_since: since7d
+    },
+    summary: {
+      contact_reveals_24h: contact24h?.count || 0,
+      contact_revealed_listings_24h: contactListings24h?.count || 0,
+      throttle_counters_7d: (throttleCounters.results || []).length,
+      hot_throttle_counters_24h: (hotThrottleCounters.results || []).length
+    },
+    top_contact_listings_24h: topContactListings.results || [],
+    recent_contact_reveals: recentContactReveals.results || [],
+    throttle_counters: throttleCounters.results || [],
+    hot_throttle_counters_24h: hotThrottleCounters.results || []
+  });
+}
+
+async function handleAdminSystem(request: Request, env: Env) {
+  const session = await requireAdminSession(request, env);
+  const cfgValue = cfg(env);
+  const now = nowIso();
+  const [
+    pendingListings,
+    activeListings,
+    pendingReports,
+    pendingJobs,
+    failedJobs,
+    activeSessions,
+    latestEvent,
+    latestAdminLog
+  ] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE status = 'pending' AND deleted_at IS NULL`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE status = 'approved' AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`).bind(now).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM listing_reports WHERE status = 'pending'`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM moderation_jobs WHERE status IN ('pending', 'processing')`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM moderation_jobs WHERE status = 'failed'`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM admin_sessions WHERE expires_at > ?`).bind(now).first<{ count: number }>(),
+    env.DB.prepare(`SELECT event_type, created_at FROM event_logs ORDER BY created_at DESC LIMIT 1`).first<{ event_type: string; created_at: string }>(),
+    env.DB.prepare(`SELECT action, created_at FROM admin_logs ORDER BY created_at DESC LIMIT 1`).first<{ action: string; created_at: string }>()
+  ]);
+  const checks = [
+    {
+      key: 'site',
+      label: 'Publiczna domena',
+      status: cfgValue.siteBaseUrl.startsWith('https://') ? 'ok' : 'bad',
+      detail: cfgValue.siteBaseUrl
+    },
+    {
+      key: 'api',
+      label: 'API pod tą samą domeną',
+      status: cfgValue.apiBaseUrl === '/api' ? 'ok' : 'warn',
+      detail: cfgValue.apiBaseUrl
+    },
+    {
+      key: 'turnstile',
+      label: 'Turnstile',
+      status: env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET_KEY ? 'ok' : 'bad',
+      detail: env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET_KEY ? 'skonfigurowany' : 'brakuje site key albo secret key'
+    },
+    {
+      key: 'moderation',
+      label: 'Moderacja OpenAI',
+      status: env.OPENAI_API_KEY ? 'ok' : 'warn',
+      detail: env.OPENAI_API_KEY ? cfgValue.moderationModel : 'brak OPENAI_API_KEY'
+    },
+    {
+      key: 'ntfy',
+      label: 'Powiadomienia ntfy',
+      status: env.NTFY_TOPIC_URL ? 'ok' : 'warn',
+      detail: env.NTFY_TOPIC_URL ? 'skonfigurowane' : 'brak NTFY_TOPIC_URL'
+    },
+    {
+      key: 'admin_mfa',
+      label: 'Admin MFA/TOTP',
+      status: env.ADMIN_TOTP_SECRET ? 'ok' : 'bad',
+      detail: env.ADMIN_TOTP_SECRET ? 'wymagane przy logowaniu' : 'brak ADMIN_TOTP_SECRET'
+    },
+    {
+      key: 'admin_session',
+      label: 'Sekret sesji admina',
+      status: env.ADMIN_SESSION_SECRET ? 'ok' : 'bad',
+      detail: env.ADMIN_SESSION_SECRET ? `TTL ${cfgValue.sessionTtlHours}h` : 'brak ADMIN_SESSION_SECRET'
+    },
+    {
+      key: 'admin_allowlist',
+      label: 'Allowlista IP admina',
+      status: env.ADMIN_ALLOWED_IPS ? 'ok' : 'bad',
+      detail: env.ADMIN_ALLOWED_IPS ? 'aktywna' : 'brak ADMIN_ALLOWED_IPS'
+    },
+    {
+      key: 'cron',
+      label: 'Cron produkcyjny',
+      status: env.APP_ENV === 'prod' ? 'ok' : 'warn',
+      detail: env.APP_ENV === 'prod' ? 'prod: 0 * * * *' : `środowisko: ${env.APP_ENV || 'unknown'}`
+    }
+  ];
+  await logAdmin(env, { adminUsername: session.username, action: 'system.view', ipAddress: getClientIp(request) });
+  return json({
+    ok: true,
+    generated_at: now,
+    environment: env.APP_ENV || 'unknown',
+    config: {
+      siteName: cfgValue.siteName,
+      siteBaseUrl: cfgValue.siteBaseUrl,
+      apiBaseUrl: cfgValue.apiBaseUrl,
+      moderationModel: cfgValue.moderationModel,
+      maxActivePerEmail: cfgValue.maxActivePerEmail,
+      maxPer7d: cfgValue.maxPer7d,
+      maxImageBytes: cfgValue.maxImageBytes,
+      reportThreshold: cfgValue.reportThreshold,
+      reminderDays: cfgValue.reminderDays,
+      sessionTtlHours: cfgValue.sessionTtlHours,
+      throttles: THROTTLES
+    },
+    checks,
+    operations: {
+      pendingListings: pendingListings?.count || 0,
+      activeListings: activeListings?.count || 0,
+      pendingReports: pendingReports?.count || 0,
+      pendingJobs: pendingJobs?.count || 0,
+      failedJobs: failedJobs?.count || 0,
+      activeAdminSessions: activeSessions?.count || 0,
+      latestEvent: latestEvent || null,
+      latestAdminLog: latestAdminLog || null
+    }
+  });
+}
+
+async function handleAdminSessions(request: Request, env: Env) {
+  const session = await requireAdminSession(request, env);
+  const rows = await env.DB.prepare(
+    `SELECT id, username, ip_address, mfa_verified_at, expires_at, created_at, last_seen_at
+     FROM admin_sessions
+     WHERE expires_at > ?
+     ORDER BY last_seen_at DESC
+     LIMIT 50`
+  )
+    .bind(nowIso())
+    .all<Omit<AdminSessionRow, 'token_hash'>>();
+  await logAdmin(env, { adminUsername: session.username, action: 'sessions.list', ipAddress: getClientIp(request) });
+  return json({
+    ok: true,
+    items: (rows.results || []).map((row) => ({
+      ...row,
+      current: row.id === session.id
+    }))
+  });
+}
+
+async function handleAdminRevokeSession(request: Request, env: Env, sessionId: string) {
+  const session = await requireAdminSession(request, env);
+  if (!sessionId) throw new HttpError(400, 'Brak identyfikatora sesji');
+  await env.DB.prepare(`DELETE FROM admin_sessions WHERE id = ?`).bind(sessionId).run();
+  const revokedCurrent = sessionId === session.id;
+  await logAdmin(env, {
+    adminUsername: session.username,
+    action: 'session.revoke',
+    targetType: 'admin_session',
+    targetId: sessionId,
+    ipAddress: getClientIp(request),
+    details: { revoked_current: revokedCurrent }
+  });
+  return json({ ok: true, message: 'Sesja została wygaszona.', revoked_current: revokedCurrent });
+}
+
 async function handleAdminAction(request: Request, env: Env, listingId: string) {
   const session = await requireAdminSession(request, env);
   const body = await readJsonBody<Record<string, unknown>>(request);
@@ -1537,6 +2289,17 @@ async function handleAdminAction(request: Request, env: Env, listingId: string) 
   if (action === 'approve') {
     await env.DB.prepare(`UPDATE listings SET status = 'approved', moderation_status = 'approved', approved_at = ?, published_at = ?, expires_at = ?, updated_at = ? WHERE id = ?`)
       .bind(nowIso(), nowIso(), daysFromNow(30), nowIso(), listing.id)
+      .run();
+  } else if (action === 'feature') {
+    if (listing.status !== 'approved') {
+      throw new HttpError(400, 'Wyróżnić można tylko aktywne ogłoszenie');
+    }
+    await env.DB.prepare(`UPDATE listings SET featured_at = ?, featured_until = ?, featured_reason = ?, updated_at = ? WHERE id = ?`)
+      .bind(nowIso(), daysFromNow(7), reason, nowIso(), listing.id)
+      .run();
+  } else if (action === 'unfeature') {
+    await env.DB.prepare(`UPDATE listings SET featured_at = NULL, featured_until = NULL, featured_reason = ?, updated_at = ? WHERE id = ?`)
+      .bind(reason, nowIso(), listing.id)
       .run();
   } else if (action === 'reject') {
     await createArchiveSnapshot(env, listing, reason, 'admin');
@@ -1620,6 +2383,9 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     if (pathname === '/api/categories') {
       return maybeWithCors(request, json({ ok: true, categories: CATEGORIES, types: LISTING_TYPES }));
     }
+    if (pathname === '/api/stats') {
+      return maybeWithCors(request, await handlePublicStats(env));
+    }
     if (pathname === '/api/listings' && request.method === 'GET') {
       return maybeWithCors(request, await handlePublicList(request, env));
     }
@@ -1628,7 +2394,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     }
     if (pathname.startsWith('/api/listings/') && pathname.endsWith('/verify') && request.method === 'GET') {
       const id = pathname.split('/')[3];
-      return maybeWithCors(request, await handleVerifyListing(env, id, url));
+      return maybeWithCors(request, await handleVerifyListing(request, env, id, url));
     }
     if (pathname.startsWith('/api/listings/') && pathname.endsWith('/approve') && request.method === 'GET') {
       const id = pathname.split('/')[3];
@@ -1637,6 +2403,14 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     if (pathname.startsWith('/api/listings/') && pathname.endsWith('/report') && request.method === 'POST') {
       const id = pathname.split('/')[3];
       return maybeWithCors(request, await handleReportListing(request, env, id));
+    }
+    if (pathname.startsWith('/api/listings/') && pathname.endsWith('/contact') && request.method === 'POST') {
+      const id = pathname.split('/')[3];
+      return maybeWithCors(request, await handleRevealListingContact(request, env, id));
+    }
+    if (pathname.startsWith('/api/listings/') && pathname.endsWith('/image') && request.method === 'GET') {
+      const id = pathname.split('/')[3];
+      return maybeWithCors(request, await handleListingImage(env, id));
     }
     if (pathname.startsWith('/api/listings/') && request.method === 'GET') {
       const id = pathname.split('/')[3];
@@ -1683,6 +2457,23 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     if (pathname === '/api/admin/users' && request.method === 'GET') {
       return maybeWithCors(request, await handleAdminUsers(request, env));
     }
+    if (pathname === '/api/admin/security' && request.method === 'GET') {
+      return maybeWithCors(request, await handleAdminSecurity(request, env));
+    }
+    if (pathname === '/api/admin/system' && request.method === 'GET') {
+      return maybeWithCors(request, await handleAdminSystem(request, env));
+    }
+    if (pathname === '/api/admin/sessions' && request.method === 'GET') {
+      return maybeWithCors(request, await handleAdminSessions(request, env));
+    }
+    if (pathname.startsWith('/api/admin/sessions/') && request.method === 'DELETE') {
+      const sessionId = decodeURIComponent(pathname.split('/').filter(Boolean)[3] || '');
+      return maybeWithCors(request, await handleAdminRevokeSession(request, env, sessionId));
+    }
+    if (pathname.startsWith('/api/admin/listings/') && pathname.endsWith('/history') && request.method === 'GET') {
+      const listingId = pathname.split('/')[4];
+      return maybeWithCors(request, await handleAdminListingHistory(request, env, listingId));
+    }
     if (pathname.startsWith('/api/admin/listings/') && pathname.endsWith('/action') && request.method === 'POST') {
       const listingId = pathname.split('/')[4];
       return maybeWithCors(request, await handleAdminAction(request, env, listingId));
@@ -1711,6 +2502,9 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+    if (isListingPageRoute(url.pathname)) {
+      return handleListingPage(request, env);
+    }
     if (!isApiRoute(url.pathname)) {
       return new Response('Not Found', { status: 404, headers: baseHeaders(securityHeaders()) });
     }

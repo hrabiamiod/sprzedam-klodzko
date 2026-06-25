@@ -41,6 +41,9 @@ CREATE TABLE IF NOT EXISTS listings (
   deleted_reason TEXT,
   archived_at TEXT,
   archived_reason TEXT,
+  featured_at TEXT,
+  featured_until TEXT,
+  featured_reason TEXT,
   version INTEGER NOT NULL DEFAULT 1,
   created_from_ip TEXT,
   updated_from_ip TEXT,
@@ -52,6 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_listings_status_created_at ON listings(status, cr
 CREATE INDEX IF NOT EXISTS idx_listings_status_expires_at ON listings(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_listings_owner_email ON listings(owner_email_normalized, status);
 CREATE INDEX IF NOT EXISTS idx_listings_category_type ON listings(category, type);
+CREATE INDEX IF NOT EXISTS idx_listings_featured_until ON listings(featured_until DESC);
 CREATE INDEX IF NOT EXISTS idx_listings_slug ON listings(slug);
 
 CREATE TABLE IF NOT EXISTS listing_revisions (
