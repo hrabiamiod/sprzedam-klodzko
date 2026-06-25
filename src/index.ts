@@ -501,7 +501,7 @@ async function fetchListingByIdOrSlug(env: Env, value: string) {
 }
 
 async function fetchListingByTokenPurpose(env: Env, token: string, purpose: 'manage_listing' | 'extend_listing') {
-  const tokenHash = await sha256Hex(token);
+  const tokenHash = await hashToken(token);
   const tokenRow = await env.DB.prepare(
     `SELECT * FROM tokens WHERE token_hash = ? AND purpose = ? AND used_at IS NULL AND expires_at > ? LIMIT 1`
   )
