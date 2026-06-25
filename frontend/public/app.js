@@ -650,10 +650,17 @@ async function submitListing(event) {
   }
 }
 
+function currentListingSlug() {
+  const fromQuery = new URLSearchParams(window.location.search).get('slug');
+  if (fromQuery) return fromQuery;
+  const parts = window.location.pathname.split('/').filter(Boolean);
+  return parts[0] === 'ogloszenie' ? decodeURIComponent(parts[1] || '') : '';
+}
+
 async function initListingPage() {
   await loadSiteConfig();
   const root = document.getElementById('detail-root');
-  const slug = new URLSearchParams(window.location.search).get('slug');
+  const slug = currentListingSlug();
   if (!slug) {
     root.innerHTML = '<div class="status-note">Brak identyfikatora ogłoszenia.</div>';
     return;

@@ -71,6 +71,21 @@ await check('API listing contact is protected', async () => {
     throw new Error(`Expected protected contact endpoint, got ${contact.response.status}: ${contact.body.slice(0, 160)}`);
   }
 });
+await check('Listing detail has server-rendered metadata', async () => {
+  const { response, body } = await fetchText('/api/listings?limit=1');
+  if (!response.ok) throw new Error(`HTTP ${response.status}: ${body.slice(0, 160)}`);
+  const payload = JSON.parse(body);
+  const item = payload.items?.[0];
+  if (!item?.slug) return;
+  const page = await fetchText(`/ogloszenie/${encodeURIComponent(item.slug)}`, { redirect: 'manual' });
+  if (page.response.status !== 200) throw new Error(`Expected 200 without redirect, got ${page.response.status}`);
+  if (!page.body.includes(`<meta property="og:title" content="${item.title}`)) {
+    throw new Error('Listing page is missing server-rendered OG title');
+  }
+  if (!page.body.includes('application/ld+json')) {
+    throw new Error('Listing page is missing JSON-LD');
+  }
+});
 await check('Homepage', () => expectHtml('/', 'Sprzedam Kłodzko'));
 await check('Admin login page', () => expectHtml('/admin/', 'Logowanie administratora'));
 await check('Manage page', () => expectHtml('/manage', 'manage-root'));

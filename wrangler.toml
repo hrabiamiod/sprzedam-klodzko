@@ -47,7 +47,10 @@ crons = []
 
 [env.prod]
 name = "sprzedam-klodzko-api-prod"
-route = { pattern = "sprzedam.klodzko.pl/api/*", zone_name = "sprzedam.klodzko.pl" }
+routes = [
+  { pattern = "sprzedam.klodzko.pl/api/*", zone_name = "sprzedam.klodzko.pl" },
+  { pattern = "sprzedam.klodzko.pl/ogloszenie/*", zone_name = "sprzedam.klodzko.pl" }
+]
 
 [env.prod.vars]
 SITE_NAME = "Sprzedam Kłodzko"

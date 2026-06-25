@@ -254,6 +254,10 @@ function isAdminApiRoute(pathname: string) {
   return pathname.startsWith('/api/admin/');
 }
 
+function isListingPageRoute(pathname: string) {
+  return pathname.startsWith('/ogloszenie/');
+}
+
 function adminAllowed(request: Request, env: Env) {
   const allowed = parseAllowedIps(env.ADMIN_ALLOWED_IPS);
   return ipAllowed(getClientIp(request), allowed);
@@ -1277,6 +1281,101 @@ async function handlePublicDetail(env: Env, identifier: string) {
   return json({ ok: true, item: listingToPublicDetailJson(listing) });
 }
 
+async function handleListingImage(env: Env, identifier: string) {
+  const listing = await fetchListingByIdOrSlug(env, identifier);
+  if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now()) || !listing.image_base64) {
+    throw new HttpError(404, 'Obraz ogłoszenia nie został znaleziony');
+  }
+  const binary = Uint8Array.from(atob(listing.image_base64), (char) => char.charCodeAt(0));
+  return new Response(binary, {
+    headers: {
+      'content-type': listing.image_mime || 'image/jpeg',
+      'cache-control': 'public, max-age=86400'
+    }
+  });
+}
+
+async function handleListingPage(request: Request, env: Env) {
+  const url = new URL(request.url);
+  const slug = decodeURIComponent(url.pathname.split('/').filter(Boolean)[1] || '');
+  const listing = slug ? await fetchListingByIdOrSlug(env, slug) : null;
+  if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now())) {
+    return new Response('Ogłoszenie nie zostało znalezione', { status: 404, headers: baseHeaders(securityHeaders()) });
+  }
+  const cfgValue = cfg(env);
+  const canonicalUrl = buildAbsoluteUrl(cfgValue.siteBaseUrl, `/ogloszenie/${listing.slug}`);
+  const title = `${listing.title} - ${cfgValue.siteName}`;
+  const description = buildMetaDescription(listing.title, listing.description);
+  const imageUrl = listing.image_base64 ? buildAbsoluteUrl(cfgValue.siteBaseUrl, `/api/listings/${listing.id}/image`) : '';
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: listing.title,
+    description,
+    image: imageUrl || undefined,
+    category: listing.category,
+    offers: {
+      '@type': 'Offer',
+      price: ((listing.price_cents || 0) / 100).toFixed(2),
+      priceCurrency: listing.currency || 'PLN',
+      availability: 'https://schema.org/InStock',
+      url: canonicalUrl,
+      areaServed: listing.city || 'Kłodzko',
+      validThrough: listing.expires_at || undefined
+    }
+  };
+  const jsonLdText = JSON.stringify(jsonLd).replace(/</g, '\\u003c');
+  const html = `<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <link rel="canonical" href="${escapeHtml(canonicalUrl)}" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
+    <meta property="og:type" content="article" />
+    ${imageUrl ? `<meta property="og:image" content="${escapeHtml(imageUrl)}" />` : ''}
+    <meta name="twitter:card" content="${imageUrl ? 'summary_large_image' : 'summary'}" />
+    <script type="application/ld+json" id="listing-jsonld">${jsonLdText}</script>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/config.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="page-bg"></div>
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="/">
+          <span class="brand-mark">K</span>
+          <span>
+            <strong id="site-name">${escapeHtml(cfgValue.siteName)}</strong>
+            <small>Ogłoszenie</small>
+          </span>
+        </a>
+        <nav class="nav">
+          <a href="/">Wróć do listy</a>
+          <a href="/admin/">Admin</a>
+        </nav>
+      </div>
+    </header>
+    <main class="shell">
+      <section class="card detail-wrap" id="detail-root">
+        <div class="status-note">Ładowanie szczegółów...</div>
+      </section>
+    </main>
+  </body>
+</html>`;
+  return new Response(html, {
+    headers: baseHeaders({
+      ...securityHeaders(),
+      'content-type': 'text/html; charset=utf-8'
+    })
+  });
+}
+
 async function handleRevealListingContact(request: Request, env: Env, listingId: string) {
   const listing = await fetchListingByIdOrSlug(env, listingId);
   if (!listing || listing.status !== 'approved' || listing.deleted_at || (listing.expires_at && new Date(listing.expires_at).getTime() <= Date.now())) {
@@ -2142,6 +2241,10 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
       const id = pathname.split('/')[3];
       return maybeWithCors(request, await handleRevealListingContact(request, env, id));
     }
+    if (pathname.startsWith('/api/listings/') && pathname.endsWith('/image') && request.method === 'GET') {
+      const id = pathname.split('/')[3];
+      return maybeWithCors(request, await handleListingImage(env, id));
+    }
     if (pathname.startsWith('/api/listings/') && request.method === 'GET') {
       const id = pathname.split('/')[3];
       return maybeWithCors(request, await handlePublicDetail(env, id));
@@ -2229,6 +2332,9 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+    if (isListingPageRoute(url.pathname)) {
+      return handleListingPage(request, env);
+    }
     if (!isApiRoute(url.pathname)) {
       return new Response('Not Found', { status: 404, headers: baseHeaders(securityHeaders()) });
     }
