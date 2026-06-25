@@ -11,8 +11,9 @@ Repo zawiera gotowy szkielet produkcyjny:
 - baza danych w Cloudflare D1,
 - moderację przez OpenAI Moderation API,
 - powiadomienia dla administratora przez ntfy.sh,
-- panel administratora z loginem, hasłem, MFA i ograniczeniem IP.
+- panel administratora z loginem, hasłem, MFA i ograniczeniem IP,
 - ochronę publicznych formularzy przez Turnstile i limity po IP.
+- publikację bez e-maili transakcyjnych: link weryfikacyjny i link zarządzania są pokazane od razu po dodaniu ogłoszenia.
 
 ## Struktura
 
@@ -92,7 +93,9 @@ Worker obsługuje:
 - `GET /api/listings`
 - `POST /api/listings`
 - `GET /api/listings/:id`
+- `GET /api/listings/:id/image`
 - `GET /api/listings/:id/verify?token=...`
+- `POST /api/listings/:id/contact`
 - `POST /api/listings/:id/report`
 - `GET|PUT|DELETE /api/manage/:token`
 - `POST /api/manage/:token/extend`
@@ -104,6 +107,11 @@ Worker obsługuje:
 - `GET /api/admin/reports`
 - `GET /api/admin/logs`
 - `GET /api/admin/users`
+- `GET /api/admin/security`
+- `GET /api/admin/system`
+- `GET /api/admin/sessions`
+- `DELETE /api/admin/sessions/:id`
+- `GET /api/admin/listings/:id/history`
 - `POST /api/admin/listings/:id/action`
 - `POST /api/admin/reports/:id/action`
 
@@ -111,11 +119,11 @@ Worker obsługuje:
 
 1. Użytkownik dodaje ogłoszenie.
 2. System zapisuje je jako `pending`.
-3. Frontend pokazuje link weryfikacyjny i link zarządzania.
-4. Po kliknięciu linku weryfikacyjnego ogłoszenie trafia do kolejki moderacji.
+3. Frontend pokazuje link weryfikacyjny i link zarządzania oraz zapisuje je lokalnie w przeglądarce.
+4. Użytkownik potwierdza ogłoszenie przyciskiem w interfejsie albo zapisanym linkiem weryfikacyjnym.
 5. OpenAI Moderation API decyduje, czy ogłoszenie przechodzi.
 6. Po akceptacji ogłoszenie od razu staje się publiczne na 30 dni.
-7. Cron sprawdza wygasanie i przypomnienia.
+7. Cron sprawdza wygasanie i przypomnienia operacyjne dla administratora.
 
 ## Frontend Pages
 
@@ -125,7 +133,7 @@ Frontend jest w `frontend/public`.
 
 - `/` - strona główna z listą ogłoszeń i formularzem dodawania
 - `/kategoria/:slug` - landing page kategorii z listą i filtrami
-- `/ogloszenie/:slug` - szczegóły ogłoszenia przez redirect z `/_redirects`
+- `/ogloszenie/:slug` - szczegóły ogłoszenia z metadanymi SEO renderowanymi przez Workera na edge
 - `/manage?token=...` - zarządzanie ogłoszeniem z linku zapisanego po dodaniu ogłoszenia
   - token `manage_listing` pozwala edytować i usuwać ogłoszenie
   - token `extend_listing` pozwala tylko odczytać ogłoszenie i przedłużyć publikację
@@ -294,7 +302,7 @@ npm run smoke:prod
 
 - dodanie ogłoszenia z małym zdjęciem,
 - zapisanie linku weryfikacyjnego i linku zarządzania,
-- kliknięcie linku weryfikacyjnego,
+- potwierdzenie ogłoszenia przyciskiem w interfejsie albo linkiem weryfikacyjnym,
 - moderacja w `/admin/`,
 - wejście w publiczny link ogłoszenia,
 - edycja z linku zarządzania i powrót do moderacji,
@@ -308,7 +316,7 @@ npm run smoke:prod
 2. Sprawdź `wrangler tail sprzedam-klodzko-api-prod --format json`.
 3. Zweryfikuj, czy `TURNSTILE_SITE_KEY` i `TURNSTILE_SECRET_KEY` są ustawione dla prod.
 4. Sprawdź limit payloadu i rozmiar zdjęcia. Produkcyjny limit zdjęcia to `MAX_IMAGE_BYTES`.
-5. Jeżeli ogłoszenie zapisało się w D1, ale użytkownik dostał błąd, sprawdź logi `ntfy` i `event_logs`.
+5. Jeżeli ogłoszenie zapisało się w D1, ale użytkownik dostał błąd, sprawdź `event_logs`, `request_throttle_counters` oraz logi `ntfy` dla powiadomień administratora.
 
 ### Backup D1
 
@@ -349,7 +357,7 @@ Do MFA używany jest TOTP. W praktyce:
 - `GET /manage`
 - dodanie ogłoszenia
 - zapisanie linków weryfikacyjnych
-- potwierdzenie linku
+- potwierdzenie ogłoszenia w interfejsie albo linkiem
 - publikacja ogłoszenia
 - edycja ogłoszenia i ponowna moderacja
 - przedłużenie ogłoszenia

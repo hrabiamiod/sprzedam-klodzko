@@ -1606,7 +1606,49 @@ async function handleCreateListing(request: Request, env: Env) {
   }, { status: 201 });
 }
 
-async function handleVerifyListing(env: Env, listingId: string, url: URL) {
+function wantsJson(request: Request) {
+  const accept = request.headers.get('accept') || '';
+  return accept.includes('application/json') || accept.includes('*/*') && !accept.includes('text/html');
+}
+
+function verificationHtml(env: Env, listing: ListingRow | null, message: string) {
+  const cfgValue = cfg(env);
+  const title = listing?.title || 'Ogłoszenie potwierdzone';
+  const html = `<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Ogłoszenie potwierdzone - ${escapeHtml(cfgValue.siteName)}</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-bg"></div>
+    <main class="shell legal-page">
+      <section class="legal-card">
+        <a href="/" class="back-link">Wróć do strony głównej</a>
+        <span class="eyebrow">Weryfikacja ogłoszenia</span>
+        <h1>${escapeHtml(title)}</h1>
+        <p>${escapeHtml(message)}</p>
+        <p>Jeżeli zapisałeś link zarządzania, otwórz go teraz, żeby śledzić status moderacji i później edytować albo usunąć ogłoszenie.</p>
+        <div class="hero-actions">
+          <a class="button primary" href="/">Przejdź do ogłoszeń</a>
+          <a class="button ghost" href="/#add">Dodaj kolejne ogłoszenie</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>`;
+  return new Response(html, {
+    headers: baseHeaders({
+      ...securityHeaders(),
+      'content-type': 'text/html; charset=utf-8'
+    })
+  });
+}
+
+async function handleVerifyListing(request: Request, env: Env, listingId: string, url: URL) {
   const token = url.searchParams.get('token') || '';
   if (!token) throw new HttpError(400, 'Brak tokenu');
   const tokenHash = await hashToken(token);
@@ -1626,9 +1668,13 @@ async function handleVerifyListing(env: Env, listingId: string, url: URL) {
     .run();
   await queueModerationJob(env, listingId, 'listing', { listingId });
   await logEvent(env, { eventType: 'listing.verified', actorType: 'publisher', listingId, details: { token_hint: tokenRow.token_hint } });
+  const message = 'Link został potwierdzony. Ogłoszenie trafiło do moderacji.';
+  if (!wantsJson(request)) {
+    return verificationHtml(env, await fetchListingByIdOrSlug(env, listingId), message);
+  }
   return json({
     ok: true,
-    message: 'Link został potwierdzony. Ogłoszenie trafiło do moderacji.'
+    message
   });
 }
 
@@ -2303,7 +2349,7 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     }
     if (pathname.startsWith('/api/listings/') && pathname.endsWith('/verify') && request.method === 'GET') {
       const id = pathname.split('/')[3];
-      return maybeWithCors(request, await handleVerifyListing(env, id, url));
+      return maybeWithCors(request, await handleVerifyListing(request, env, id, url));
     }
     if (pathname.startsWith('/api/listings/') && pathname.endsWith('/approve') && request.method === 'GET') {
       const id = pathname.split('/')[3];

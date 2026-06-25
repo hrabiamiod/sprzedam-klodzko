@@ -161,6 +161,7 @@ function renderSubmissionMessage(payload) {
   const manageUrl = payload?.links?.manage || '';
   const notice = payload?.message || 'Ogłoszenie dodane.';
   const listing = payload?.listing || {};
+  const verified = Boolean(payload?.verified_at || payload?.verification_done);
   return `
     <div class="submission-result launch-card">
       <div class="section-head">
@@ -168,15 +169,18 @@ function renderSubmissionMessage(payload) {
           <span class="eyebrow">Ogłoszenie zapisane</span>
           <h3>${esc(listing.title || notice)}</h3>
         </div>
-        <span class="tag warn">Krok 1 z 3</span>
+        <span class="tag ${verified ? 'ok' : 'warn'}">${verified ? 'Weryfikacja wykonana' : 'Krok 1 z 3'}</span>
       </div>
       <p>Nie wysyłamy e-maili. Te linki są jedynym szybkim dostępem do potwierdzenia i zarządzania ogłoszeniem, więc zapisz je teraz.</p>
+      <div class="submission-status" id="submission-status" aria-live="polite">
+        ${verified ? 'Ogłoszenie jest potwierdzone i czeka na moderację.' : 'Potwierdź ogłoszenie w tym oknie. Po potwierdzeniu przejdź do panelu ogłoszenia.'}
+      </div>
       <ol class="submission-steps">
         <li>
           <strong>Potwierdź ogłoszenie</strong>
-          <span>Otwórz link weryfikacyjny. Dopiero po tym ogłoszenie trafia do moderacji.</span>
+          <span>Potwierdzenie uruchamia moderację. Bez tego ogłoszenie nie będzie publiczne.</span>
           <div class="submission-actions">
-            <a class="button small primary" href="${esc(verifyUrl)}" target="_blank" rel="noreferrer">Otwórz weryfikację</a>
+            <button class="button small primary" type="button" data-verify-submission-link="${esc(verifyUrl)}" ${verified ? 'disabled' : ''}>${verified ? 'Potwierdzone' : 'Potwierdź teraz'}</button>
             <button class="button small ghost" type="button" data-copy-submission-link="${esc(verifyUrl)}">Kopiuj</button>
           </div>
         </li>
@@ -871,6 +875,46 @@ function restoreLastSubmission() {
   }
 }
 
+async function verifyLastSubmission(button) {
+  const verifyUrl = button.getAttribute('data-verify-submission-link') || '';
+  if (!verifyUrl) return;
+  const status = document.getElementById('submission-status');
+  button.disabled = true;
+  const previousText = button.textContent;
+  button.textContent = 'Potwierdzam...';
+  if (status) status.textContent = 'Potwierdzanie ogłoszenia i uruchamianie moderacji...';
+  try {
+    const response = await fetch(verifyUrl, {
+      credentials: 'include',
+      headers: { accept: 'application/json' }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      throw new Error(payload.error || `HTTP ${response.status}`);
+    }
+    button.textContent = 'Potwierdzone';
+    button.classList.remove('primary');
+    button.classList.add('ghost');
+    if (status) status.textContent = payload.message || 'Ogłoszenie jest potwierdzone i czeka na moderację.';
+    try {
+      const raw = localStorage.getItem('sprzedam_last_submission');
+      if (raw) {
+        const saved = JSON.parse(raw);
+        saved.verification_done = true;
+        saved.verified_at = new Date().toISOString();
+        saved.message = payload.message || saved.message;
+        localStorage.setItem('sprzedam_last_submission', JSON.stringify(saved));
+      }
+    } catch {
+      // Best effort only.
+    }
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = previousText || 'Potwierdź teraz';
+    if (status) status.textContent = error.message || String(error);
+  }
+}
+
 function bindSubmissionVaultActions() {
   document.querySelectorAll('[data-copy-submission-link]').forEach((button) => {
     if (button.dataset.boundCopy === '1') return;
@@ -885,6 +929,11 @@ function bindSubmissionVaultActions() {
         window.prompt('Skopiuj link:', value);
       }
     });
+  });
+  document.querySelectorAll('[data-verify-submission-link]').forEach((button) => {
+    if (button.dataset.boundVerify === '1') return;
+    button.dataset.boundVerify = '1';
+    button.addEventListener('click', () => verifyLastSubmission(button));
   });
   document.getElementById('clear-last-submission')?.addEventListener('click', () => {
     localStorage.removeItem('sprzedam_last_submission');

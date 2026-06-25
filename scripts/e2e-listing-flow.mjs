@@ -13,7 +13,13 @@ function absolute(path) {
 
 async function requestJson(pathOrUrl, init) {
   const url = pathOrUrl.startsWith('http') ? pathOrUrl : absolute(pathOrUrl);
-  const response = await fetch(url, init);
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      accept: 'application/json',
+      ...(init?.headers || {})
+    }
+  });
   const body = await response.text();
   let payload;
   try {

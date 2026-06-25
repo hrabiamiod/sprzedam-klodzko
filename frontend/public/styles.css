@@ -520,6 +520,15 @@ label span {
   color: var(--muted);
   line-height: 1.45;
 }
+.submission-status {
+  padding: 10px 12px;
+  border: 1px solid rgba(36, 87, 166, 0.18);
+  border-radius: var(--radius);
+  background: rgba(36, 87, 166, 0.08);
+  color: var(--text);
+  font-weight: 800;
+  line-height: 1.45;
+}
 .submission-actions,
 .submission-vault {
   display: flex;
