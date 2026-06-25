@@ -291,7 +291,25 @@ E2E_BASE_URL=http://127.0.0.1:8787 E2E_TURNSTILE_TOKEN=dev-bypass E2E_APPROVE_WI
 
 Tryb `E2E_APPROVE_WITH_WRANGLER=1` działa wyłącznie przez lokalne `wrangler d1 execute --local`. Nie dodaje żadnego testowego endpointu do API.
 
-7. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
+7. Lokalny E2E panelu administratora sprawdza MFA/TOTP, sesję, dashboard, listę sesji i logout. Użyj testowych sekretów w `.dev.vars`:
+
+```bash
+ADMIN_USERNAME=admin-e2e
+ADMIN_PASSWORD=admin-e2e-password
+ADMIN_TOTP_SECRET=JBSWY3DPEHPK3PXP
+ADMIN_SESSION_SECRET=local-admin-session-secret
+ADMIN_ALLOWED_IPS=127.0.0.1,::1
+```
+
+Potem uruchom:
+
+```bash
+npx wrangler d1 execute sprzedam-klodzko-db-dev --env dev --local --file=./schema.sql
+npx wrangler dev --env dev --local --port 8787
+E2E_BASE_URL=http://127.0.0.1:8787 npm run e2e:admin
+```
+
+8. Jeśli chcesz podejrzeć frontend lokalnie, uruchom prosty serwer statyczny w `frontend/public` albo użyj Pages preview.
 
 ## Runbook operacyjny
 
