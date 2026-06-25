@@ -4,7 +4,8 @@ const state = {
   categories: [],
   types: [],
   listings: [],
-  fixedCategory: ''
+  fixedCategory: '',
+  stats: null
 };
 
 const CATEGORY_SLUGS = {
@@ -162,10 +163,21 @@ function renderCategoryLinks() {
   if (!target) return;
   target.innerHTML = state.categories.map((category) => `
     <a class="category-tile" href="/kategoria/${categorySlug(category)}">
-      <strong>${esc(category)}</strong>
+      <strong>${esc(category)} <span>${esc(state.stats?.by_category?.[category] || 0)}</span></strong>
       <span>${esc(CATEGORY_DESCRIPTIONS[category] || 'Lokalne ogłoszenia w tej kategorii.')}</span>
     </a>
   `).join('');
+}
+
+function renderMarketStats() {
+  const totalNode = document.getElementById('stat-total');
+  const categoriesNode = document.getElementById('stat-categories');
+  const latestNode = document.getElementById('stat-latest');
+  if (totalNode && state.stats) totalNode.textContent = String(state.stats.total_active || 0);
+  if (categoriesNode) categoriesNode.textContent = String(state.categories.length || 0);
+  if (latestNode && state.stats?.latest_approved_at) {
+    latestNode.textContent = new Date(state.stats.latest_approved_at).toLocaleDateString('pl-PL');
+  }
 }
 
 function renderFilters() {
@@ -187,12 +199,13 @@ function renderFilters() {
   }
   const categoriesStat = document.getElementById('stat-categories');
   if (categoriesStat) categoriesStat.textContent = String(state.categories.length || 0);
+  renderMarketStats();
   renderCategoryLinks();
 }
 
 function updateStats(total) {
   const totalNode = document.getElementById('stat-total');
-  if (totalNode) totalNode.textContent = String(total);
+  if (totalNode) totalNode.textContent = String(state.fixedCategory ? total : state.stats?.total_active ?? total);
 }
 
 function renderListings(items) {
@@ -229,9 +242,13 @@ async function loadListings() {
 
 async function initIndex() {
   await loadSiteConfig();
-  const payload = await fetchJson('/categories');
+  const [payload, statsPayload] = await Promise.all([
+    fetchJson('/categories'),
+    fetchJson('/stats').catch(() => ({ ok: false }))
+  ]);
   state.categories = payload.categories || [];
   state.types = payload.types || [];
+  state.stats = statsPayload.ok ? statsPayload : null;
   renderFilters();
   renderTurnstile('create-turnstile-slot', 'create-turnstile-token');
   await loadListings();
@@ -273,9 +290,13 @@ async function initCategoryPage() {
     return;
   }
   state.fixedCategory = category;
-  const payload = await fetchJson('/categories');
+  const [payload, statsPayload] = await Promise.all([
+    fetchJson('/categories'),
+    fetchJson('/stats').catch(() => ({ ok: false }))
+  ]);
   state.categories = payload.categories || [];
   state.types = payload.types || [];
+  state.stats = statsPayload.ok ? statsPayload : null;
   document.title = `${category} - ogłoszenia lokalne Kłodzko`;
   document.querySelector('meta[name="description"]')?.setAttribute('content', CATEGORY_DESCRIPTIONS[category] || `Ogłoszenia lokalne w kategorii ${category}.`);
   document.getElementById('category-title').textContent = `${category} w Kłodzku`;

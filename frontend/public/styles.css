@@ -246,7 +246,20 @@ label span {
   box-shadow: 0 12px 28px rgba(23, 33, 43, 0.08);
 }
 .category-tile strong {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 1.05rem;
+}
+.category-tile strong span {
+  min-width: 32px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--text);
+  color: #fff;
+  font-size: 12px;
 }
 .category-tile span {
   color: var(--muted);

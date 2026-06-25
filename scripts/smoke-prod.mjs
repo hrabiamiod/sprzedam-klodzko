@@ -41,6 +41,7 @@ async function expectJson(path, predicate) {
 
 await check('API health', () => expectJson('/api/health', (payload) => payload.ok === true));
 await check('API categories', () => expectJson('/api/categories', (payload) => payload.ok === true && payload.categories?.length >= 6));
+await check('API stats', () => expectJson('/api/stats', (payload) => payload.ok === true && typeof payload.total_active === 'number' && payload.by_category));
 await check('API listings', () => expectJson('/api/listings?limit=3', (payload) => payload.ok === true && Array.isArray(payload.items)));
 await check('Homepage', () => expectHtml('/', 'Sprzedam Kłodzko'));
 await check('Admin login page', () => expectHtml('/admin/', 'Logowanie administratora'));

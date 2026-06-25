@@ -1161,6 +1161,35 @@ async function handlePublicConfig(env: Env) {
   });
 }
 
+async function handlePublicStats(env: Env) {
+  const now = nowIso();
+  const activeWhere = `status = 'approved' AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`;
+  const [total, categories, types, latest] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE ${activeWhere}`).bind(now).first<{ count: number }>(),
+    env.DB.prepare(`SELECT category, COUNT(*) AS count FROM listings WHERE ${activeWhere} GROUP BY category`).bind(now).all<{ category: string; count: number }>(),
+    env.DB.prepare(`SELECT type, COUNT(*) AS count FROM listings WHERE ${activeWhere} GROUP BY type`).bind(now).all<{ type: string; count: number }>(),
+    env.DB.prepare(`SELECT approved_at, created_at FROM listings WHERE ${activeWhere} ORDER BY approved_at DESC, created_at DESC LIMIT 1`).bind(now).first<{ approved_at: string | null; created_at: string }>()
+  ]);
+
+  const byCategory = Object.fromEntries(CATEGORIES.map((category) => [category, 0]));
+  for (const row of categories.results || []) {
+    byCategory[row.category] = row.count;
+  }
+  const byType = Object.fromEntries(LISTING_TYPES.map((type) => [type, 0]));
+  for (const row of types.results || []) {
+    byType[row.type] = row.count;
+  }
+
+  return json({
+    ok: true,
+    total_active: total?.count || 0,
+    by_category: byCategory,
+    by_type: byType,
+    latest_approved_at: latest?.approved_at || latest?.created_at || null,
+    generated_at: now
+  });
+}
+
 async function handleCreateListing(request: Request, env: Env) {
   const body = await readJsonBody<Record<string, unknown>>(request, imageUploadJsonLimit(env));
   const cfgValue = cfg(env);
@@ -1753,6 +1782,9 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     }
     if (pathname === '/api/categories') {
       return maybeWithCors(request, json({ ok: true, categories: CATEGORIES, types: LISTING_TYPES }));
+    }
+    if (pathname === '/api/stats') {
+      return maybeWithCors(request, await handlePublicStats(env));
     }
     if (pathname === '/api/listings' && request.method === 'GET') {
       return maybeWithCors(request, await handlePublicList(request, env));
