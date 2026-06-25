@@ -1,0 +1,70 @@
+name = "sprzedam-klodzko-api"
+main = "src/index.ts"
+compatibility_date = "2026-06-24"
+minify = true
+
+[vars]
+SITE_NAME = "Sprzedam Kłodzko"
+SITE_BASE_URL = "https://sprzedam.klodzko.pl"
+PUBLIC_API_BASE_URL = "/api"
+OPENAI_MODERATION_MODEL = "omni-moderation-latest"
+MAX_ACTIVE_LISTINGS_PER_EMAIL = "5"
+MAX_LISTINGS_PER_EMAIL_PER_7D = "10"
+MAX_IMAGE_BYTES = "750000"
+REPORTS_AUTO_ARCHIVE_THRESHOLD = "3"
+REMINDER_DAYS_BEFORE_EXPIRY = "3"
+ADMIN_SESSION_TTL_HOURS = "12"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sprzedam-klodzko-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[env.dev]
+name = "sprzedam-klodzko-api-dev"
+
+[env.dev.vars]
+SITE_NAME = "Sprzedam Kłodzko DEV"
+SITE_BASE_URL = "https://sprzedam-klodzko-dev.pages.dev"
+PUBLIC_API_BASE_URL = "/api"
+OPENAI_MODERATION_MODEL = "omni-moderation-latest"
+MAX_ACTIVE_LISTINGS_PER_EMAIL = "5"
+MAX_LISTINGS_PER_EMAIL_PER_7D = "10"
+MAX_IMAGE_BYTES = "750000"
+REPORTS_AUTO_ARCHIVE_THRESHOLD = "3"
+REMINDER_DAYS_BEFORE_EXPIRY = "3"
+ADMIN_SESSION_TTL_HOURS = "12"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "sprzedam-klodzko-db-dev"
+database_id = "f06f9b9d-b477-4a02-89f9-4d012028e554"
+
+[env.dev.triggers]
+crons = []
+
+[env.prod]
+name = "sprzedam-klodzko-api-prod"
+route = { pattern = "sprzedam.klodzko.pl/api/*", zone_name = "sprzedam.klodzko.pl" }
+
+[env.prod.vars]
+SITE_NAME = "Sprzedam Kłodzko"
+SITE_BASE_URL = "https://sprzedam.klodzko.pl"
+PUBLIC_API_BASE_URL = "/api"
+OPENAI_MODERATION_MODEL = "omni-moderation-latest"
+MAX_ACTIVE_LISTINGS_PER_EMAIL = "5"
+MAX_LISTINGS_PER_EMAIL_PER_7D = "10"
+MAX_IMAGE_BYTES = "750000"
+REPORTS_AUTO_ARCHIVE_THRESHOLD = "3"
+REMINDER_DAYS_BEFORE_EXPIRY = "3"
+ADMIN_SESSION_TTL_HOURS = "12"
+TURNSTILE_SITE_KEY = "0x4AAAAAADqipDSFBNGiK3wy"
+ADMIN_ALLOWED_IPS = "188.122.24.138"
+
+[[env.prod.d1_databases]]
+binding = "DB"
+database_name = "sprzedam-klodzko-db"
+database_id = "04ad8069-2549-47f6-b402-6df5e53c89f9"
+
+[env.prod.triggers]
+crons = ["0 * * * *"]

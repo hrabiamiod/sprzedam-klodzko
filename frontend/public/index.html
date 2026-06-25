@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sprzedam Kłodzko</title>
+    <meta name="description" content="Lokalne ogłoszenia sprzedam, kupię, oddam i szukam dla Kłodzka. Prosta publikacja przez link i automatyczna moderacja." />
+    <meta property="og:title" content="Sprzedam Kłodzko" />
+    <meta property="og:description" content="Lokalne ogłoszenia dla mieszkańców Kłodzka." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://sprzedam.klodzko.pl/" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/config.js"></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="page-bg"></div>
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="/">
+          <span class="brand-mark">K</span>
+          <span>
+            <strong id="site-name">Sprzedam Kłodzko</strong>
+            <small>Lokalny rynek ogłoszeń</small>
+          </span>
+        </a>
+        <nav class="nav">
+          <a href="#add">Dodaj ogłoszenie</a>
+          <a href="/regulamin.html">Regulamin</a>
+          <a href="/polityka-prywatnosci.html">Polityka prywatności</a>
+          <a href="/admin/">Admin</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="shell main-grid">
+      <section class="hero card">
+        <div class="hero-copy">
+          <span class="eyebrow">Kłodzko i okolice</span>
+          <h1>Sprzedawaj lokalnie bez zbędnych pośredników.</h1>
+          <p>
+            Ogłoszenia przechodzą weryfikację linkiem i automatyczną moderację. Zdjęcie, kategoria i kontakt w jednym miejscu.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#add">Dodaj ogłoszenie</a>
+            <a class="button ghost" href="#listings">Zobacz ogłoszenia</a>
+          </div>
+        </div>
+        <div class="hero-stats" id="stats">
+          <div class="stat"><strong id="stat-total">0</strong><span>aktywnych ogłoszeń</span></div>
+          <div class="stat"><strong id="stat-categories">6</strong><span>kategorii</span></div>
+          <div class="stat"><strong>30 dni</strong><span>standard publikacji</span></div>
+        </div>
+      </section>
+
+      <section class="card filters" id="listings">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Przeglądanie</span>
+            <h2>Aktualne ogłoszenia</h2>
+          </div>
+          <div class="status-note" id="load-state">Ładowanie...</div>
+        </div>
+        <div class="filters-row">
+          <input id="search" class="input" placeholder="Szukaj po tytule lub opisie" />
+          <select id="filter-category" class="input"></select>
+          <select id="filter-type" class="input"></select>
+          <button class="button primary" id="apply-filters">Filtruj</button>
+        </div>
+        <div class="listing-grid" id="listing-grid"></div>
+        <div class="empty" id="empty-state" hidden>Brak ogłoszeń spełniających warunki.</div>
+      </section>
+
+      <section class="card form-card" id="add">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Publikacja</span>
+            <h2>Dodaj ogłoszenie</h2>
+          </div>
+          <div class="status-note">Po wysłaniu zobaczysz link weryfikacyjny i link zarządzania. Zapisz je od razu.</div>
+        </div>
+
+        <form id="listing-form" class="form-grid">
+          <label>
+            <span>Tytuł</span>
+            <input name="title" class="input" required maxlength="120" />
+          </label>
+          <label>
+            <span>Typ</span>
+            <select name="type" class="input" required></select>
+          </label>
+          <label>
+            <span>Kategoria</span>
+            <select name="category" class="input" required></select>
+          </label>
+          <label>
+            <span>Cena (PLN)</span>
+            <input name="price" class="input" inputmode="decimal" placeholder="0" />
+          </label>
+          <label class="full">
+            <span>Opis</span>
+            <textarea name="description" class="input textarea" required minlength="20"></textarea>
+          </label>
+          <label>
+            <span>Imię / nazwa kontaktowa</span>
+            <input name="contact_name" class="input" required />
+          </label>
+          <label>
+            <span>E-mail kontaktowy</span>
+            <input name="contact_email" class="input" type="email" required />
+          </label>
+          <label>
+            <span>Telefon</span>
+            <input name="contact_phone" class="input" />
+          </label>
+          <label>
+            <span>Miejscowość</span>
+            <input name="city" class="input" value="Kłodzko" />
+          </label>
+          <label class="full">
+            <span>Zdjęcie</span>
+            <input name="image" class="input" type="file" accept="image/*" />
+          </label>
+          <div class="turnstile-slot full" id="create-turnstile-slot"></div>
+          <input type="hidden" name="turnstile_token" id="create-turnstile-token" />
+          <label class="full consent">
+            <input name="contact_consent" type="checkbox" required />
+            <span>Wyrażam zgodę na przetwarzanie danych osobowych w celu publikacji ogłoszenia.</span>
+          </label>
+          <button class="button primary full" type="submit">Wyślij ogłoszenie</button>
+        </form>
+        <div class="message" id="form-message" hidden></div>
+      </section>
+    </main>
+
+    <footer class="shell site-footer">
+      <div>
+        <strong>Sprzedam Kłodzko</strong>
+        <p>Lokalny serwis ogłoszeniowy z automatyczną moderacją.</p>
+      </div>
+      <div class="footer-links">
+        <a href="/regulamin.html">Regulamin</a>
+        <a href="/polityka-prywatnosci.html">Polityka prywatności</a>
+      </div>
+    </footer>
+  </body>
+</html>

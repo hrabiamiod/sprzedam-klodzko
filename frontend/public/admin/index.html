@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panel administratora</title>
+    <meta name="robots" content="noindex,nofollow" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/admin.css" />
+    <script src="/config.js"></script>
+    <script type="module" src="/admin.js"></script>
+  </head>
+  <body>
+    <div class="page-bg admin-bg"></div>
+    <header class="site-header">
+      <div class="shell header-inner">
+        <a class="brand" href="/">
+          <span class="brand-mark">K</span>
+          <span>
+            <strong id="site-name">Sprzedam Kłodzko</strong>
+            <small>Panel administratora</small>
+          </span>
+        </a>
+        <nav class="nav">
+          <a href="/">Publiczny serwis</a>
+          <button class="button ghost small" id="logout-button" hidden>Wyloguj</button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="shell admin-shell">
+      <section class="card login-card" id="login-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Dostęp ograniczony</span>
+            <h1>Logowanie administratora</h1>
+          </div>
+          <div class="status-note">Wymagany adres IP z allowlisty i kod MFA.</div>
+        </div>
+        <form id="login-form" class="form-grid admin-login">
+          <label>
+            <span>Login</span>
+            <input name="username" class="input" autocomplete="username" required />
+          </label>
+          <label>
+            <span>Hasło</span>
+            <input name="password" class="input" type="password" autocomplete="current-password" required />
+          </label>
+          <label>
+            <span>Kod MFA</span>
+            <input name="mfa" class="input" inputmode="numeric" autocomplete="one-time-code" required />
+          </label>
+          <button class="button primary full" type="submit">Zaloguj</button>
+        </form>
+        <pre class="message" id="login-message" hidden></pre>
+      </section>
+
+      <section class="admin-grid" id="dashboard" hidden>
+        <div class="metric-grid" id="metrics"></div>
+        <section class="card admin-panel">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Moderacja</span>
+              <h2>Ogłoszenia</h2>
+            </div>
+            <select id="listing-status-filter" class="input compact">
+              <option value="">Wszystkie</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="expired">Expired</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
+          <div id="admin-listings" class="table-wrap"></div>
+        </section>
+
+        <section class="card admin-panel">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Raporty</span>
+              <h2>Zgłoszenia użytkowników</h2>
+            </div>
+          </div>
+          <div id="admin-reports" class="table-wrap"></div>
+        </section>
+
+        <section class="card admin-panel">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Użytkownicy</span>
+              <h2>Limity publikacji</h2>
+            </div>
+          </div>
+          <div id="admin-users" class="table-wrap"></div>
+        </section>
+
+        <section class="card admin-panel">
+          <div class="section-head">
+            <div>
+              <span class="eyebrow">Logi</span>
+              <h2>Wydarzenia systemowe</h2>
+            </div>
+          </div>
+          <div id="admin-logs" class="table-wrap"></div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

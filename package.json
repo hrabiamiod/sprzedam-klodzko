@@ -1,0 +1,19 @@
+{
+  "name": "sprzedam-klodzko",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "setup:prod": "node scripts/setup-prod.mjs",
+    "types": "wrangler types",
+    "db:exec": "wrangler d1 execute sprzedam-klodzko-db --file=./schema.sql",
+    "db:drop": "wrangler d1 execute sprzedam-klodzko-db --command=\"DROP TABLE IF EXISTS listings;\""
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "wrangler": "^4.35.0"
+  }
+}
