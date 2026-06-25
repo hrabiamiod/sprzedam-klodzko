@@ -332,6 +332,46 @@ function logTable(items) {
   `;
 }
 
+function sessionTable(items) {
+  if (!items.length) return renderEmpty('Brak aktywnych sesji administratora.');
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Administrator</th>
+          <th>IP</th>
+          <th>MFA</th>
+          <th>Utworzona</th>
+          <th>Ostatnio widziana</th>
+          <th>Wygasa</th>
+          <th>Akcje</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((item) => `
+          <tr>
+            <td>
+              <span class="tag ${item.current ? 'ok' : ''}">${item.current ? 'Bieżąca' : 'Aktywna'}</span>
+            </td>
+            <td><strong>${esc(item.username)}</strong></td>
+            <td>${esc(item.ip_address || 'nieznane')}</td>
+            <td>${esc(formatDate(item.mfa_verified_at))}</td>
+            <td>${esc(formatDate(item.created_at))}</td>
+            <td>${esc(formatDate(item.last_seen_at))}</td>
+            <td>${esc(formatDate(item.expires_at))}</td>
+            <td>
+              <button class="button ghost small danger-action" data-session-revoke="${esc(item.id)}">
+                ${item.current ? 'Wyloguj tę sesję' : 'Wygas'}
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 async function login(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -400,6 +440,11 @@ async function loadLogs() {
   document.getElementById('admin-logs').innerHTML = logTable(payload.items || []);
 }
 
+async function loadSessions() {
+  const payload = await fetchJson('/admin/sessions');
+  document.getElementById('admin-sessions').innerHTML = sessionTable(payload.items || []);
+}
+
 async function loadListingHistory(id) {
   if (!id) return;
   const target = document.getElementById('admin-history');
@@ -453,6 +498,17 @@ async function actionOnReport(id, action) {
   await bootstrap(true);
 }
 
+async function revokeAdminSession(id) {
+  if (!id) return;
+  if (!window.confirm('Wygasić wybraną sesję administratora?')) return;
+  const payload = await fetchJson(`/admin/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (payload.revoked_current) {
+    window.location.reload();
+    return;
+  }
+  await loadSessions();
+}
+
 async function bootstrap(skipLoginCheck = false) {
   const loginCard = document.getElementById('login-card');
   const dashboard = document.getElementById('dashboard');
@@ -465,7 +521,7 @@ async function bootstrap(skipLoginCheck = false) {
       loginCard.hidden = true;
       dashboard.hidden = false;
       logoutButton.hidden = false;
-      await Promise.all([loadDashboard(), loadListings(), loadReports(), loadUsers(), loadLogs()]);
+      await Promise.all([loadDashboard(), loadListings(), loadReports(), loadUsers(), loadSessions(), loadLogs()]);
     }
   } catch {
     loginCard.hidden = false;
@@ -477,6 +533,7 @@ async function bootstrap(skipLoginCheck = false) {
 document.getElementById('login-form')?.addEventListener('submit', login);
 document.getElementById('logout-button')?.addEventListener('click', logout);
 document.getElementById('refresh-admin')?.addEventListener('click', () => bootstrap(true).catch((error) => alert(error.message || String(error))));
+document.getElementById('refresh-sessions')?.addEventListener('click', () => loadSessions().catch((error) => alert(error.message || String(error))));
 document.querySelector('[name="mfa"]')?.addEventListener('input', (event) => {
   event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 6);
 });
@@ -498,6 +555,7 @@ document.addEventListener('click', (event) => {
   const reportAction = target.dataset.reportAction;
   const bulkListingAction = target.dataset.bulkListingAction;
   const historyId = target.dataset.historyId;
+  const sessionRevoke = target.dataset.sessionRevoke;
   if (listingAction) {
     actionOnListing(target.dataset.id, listingAction).catch((error) => alert(error.message || String(error)));
   }
@@ -509,6 +567,9 @@ document.addEventListener('click', (event) => {
   }
   if (historyId) {
     loadListingHistory(historyId).catch((error) => alert(error.message || String(error)));
+  }
+  if (sessionRevoke) {
+    revokeAdminSession(sessionRevoke).catch((error) => alert(error.message || String(error)));
   }
   if (target.dataset.closeHistory !== undefined) {
     const history = document.getElementById('admin-history');

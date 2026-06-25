@@ -1715,6 +1715,43 @@ async function handleAdminUsers(request: Request, env: Env) {
   return json({ ok: true, items: rows.results || [] });
 }
 
+async function handleAdminSessions(request: Request, env: Env) {
+  const session = await requireAdminSession(request, env);
+  const rows = await env.DB.prepare(
+    `SELECT id, username, ip_address, mfa_verified_at, expires_at, created_at, last_seen_at
+     FROM admin_sessions
+     WHERE expires_at > ?
+     ORDER BY last_seen_at DESC
+     LIMIT 50`
+  )
+    .bind(nowIso())
+    .all<Omit<AdminSessionRow, 'token_hash'>>();
+  await logAdmin(env, { adminUsername: session.username, action: 'sessions.list', ipAddress: getClientIp(request) });
+  return json({
+    ok: true,
+    items: (rows.results || []).map((row) => ({
+      ...row,
+      current: row.id === session.id
+    }))
+  });
+}
+
+async function handleAdminRevokeSession(request: Request, env: Env, sessionId: string) {
+  const session = await requireAdminSession(request, env);
+  if (!sessionId) throw new HttpError(400, 'Brak identyfikatora sesji');
+  await env.DB.prepare(`DELETE FROM admin_sessions WHERE id = ?`).bind(sessionId).run();
+  const revokedCurrent = sessionId === session.id;
+  await logAdmin(env, {
+    adminUsername: session.username,
+    action: 'session.revoke',
+    targetType: 'admin_session',
+    targetId: sessionId,
+    ipAddress: getClientIp(request),
+    details: { revoked_current: revokedCurrent }
+  });
+  return json({ ok: true, message: 'Sesja została wygaszona.', revoked_current: revokedCurrent });
+}
+
 async function handleAdminAction(request: Request, env: Env, listingId: string) {
   const session = await requireAdminSession(request, env);
   const body = await readJsonBody<Record<string, unknown>>(request);
@@ -1874,6 +1911,13 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     }
     if (pathname === '/api/admin/users' && request.method === 'GET') {
       return maybeWithCors(request, await handleAdminUsers(request, env));
+    }
+    if (pathname === '/api/admin/sessions' && request.method === 'GET') {
+      return maybeWithCors(request, await handleAdminSessions(request, env));
+    }
+    if (pathname.startsWith('/api/admin/sessions/') && request.method === 'DELETE') {
+      const sessionId = decodeURIComponent(pathname.split('/').filter(Boolean)[3] || '');
+      return maybeWithCors(request, await handleAdminRevokeSession(request, env, sessionId));
     }
     if (pathname.startsWith('/api/admin/listings/') && pathname.endsWith('/history') && request.method === 'GET') {
       const listingId = pathname.split('/')[4];
