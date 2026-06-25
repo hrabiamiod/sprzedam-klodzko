@@ -63,6 +63,32 @@ async function waitForHealth() {
   throw new Error(`Worker did not become ready: ${lastError?.message || 'timeout'}`);
 }
 
+async function stopWorker(worker) {
+  if (worker.exitCode !== null || worker.signalCode !== null) return;
+
+  const killTarget = process.platform === 'win32' ? worker.pid : -worker.pid;
+  try {
+    process.kill(killTarget, 'SIGTERM');
+  } catch {
+    worker.kill('SIGTERM');
+  }
+
+  await new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      try {
+        process.kill(killTarget, 'SIGKILL');
+      } catch {
+        worker.kill('SIGKILL');
+      }
+      resolve();
+    }, 2_000);
+    worker.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
 async function main() {
   const restoreDevVars = writeTemporaryDevVars();
   run('npx', ['wrangler', 'd1', 'execute', 'sprzedam-klodzko-db-dev', '--env', 'dev', '--local', '--file=./schema.sql']);
@@ -70,6 +96,7 @@ async function main() {
 
   const worker = spawn('npx', ['wrangler', 'dev', '--env', 'dev', '--local', '--port', '8787'], {
     env: devEnv,
+    detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -93,14 +120,7 @@ async function main() {
       }
     });
   } finally {
-    worker.kill('SIGTERM');
-    await new Promise((resolve) => {
-      const timeout = setTimeout(resolve, 2_000);
-      worker.once('exit', () => {
-        clearTimeout(timeout);
-        resolve();
-      });
-    });
+    await stopWorker(worker);
     restoreDevVars();
   }
 }
