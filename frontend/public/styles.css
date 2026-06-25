@@ -322,6 +322,41 @@ label span {
 .manage-metrics {
   margin-bottom: 16px;
 }
+.history-wrap {
+  margin-top: 14px;
+}
+.history-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+.timeline-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.timeline-list li {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  background: #fff;
+}
+.timeline-list strong {
+  color: var(--text);
+}
+.timeline-list span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
 .empty {
   display: grid;
   gap: 6px;

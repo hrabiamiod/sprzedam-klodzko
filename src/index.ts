@@ -110,6 +110,16 @@ type AdminSessionRow = {
   last_seen_at: string;
 };
 
+type ListingTimelineItem = {
+  kind: 'event' | 'archive' | 'revision';
+  label: string;
+  source?: string | null;
+  reason?: string | null;
+  version?: number | null;
+  created_at: string;
+  details?: unknown;
+};
+
 type ModerationResponse = {
   results?: Array<{
     flagged?: boolean;
@@ -172,6 +182,15 @@ function cfg(env: Env) {
 
 function imageUploadJsonLimit(env: Env) {
   return cfg(env).maxImageBytes * 2 + 32_000;
+}
+
+function parseJsonSafe(value: string | null) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
 }
 
 const THROTTLES = {
@@ -742,6 +761,77 @@ async function createArchiveSnapshot(env: Env, listing: ListingRow, reason: stri
     .run();
 }
 
+async function createRevisionSnapshot(env: Env, listing: ListingRow, reason: string) {
+  await env.DB.prepare(
+    `INSERT INTO listing_revisions (id, listing_id, version, snapshot_json, archived_reason, archived_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(crypto.randomUUID(), listing.id, listing.version, JSON.stringify(listing), reason, nowIso(), nowIso())
+    .run();
+}
+
+async function fetchListingTimeline(env: Env, listingId: string, includeSnapshots = false) {
+  const events = await env.DB.prepare(
+    `SELECT event_type, actor_type, actor_id, details_json, created_at
+     FROM event_logs
+     WHERE listing_id = ?
+     ORDER BY created_at DESC
+     LIMIT 60`
+  )
+    .bind(listingId)
+    .all<{ event_type: string; actor_type: string; actor_id: string | null; details_json: string | null; created_at: string }>();
+
+  const timeline: ListingTimelineItem[] = (events.results || []).map((event) => ({
+    kind: 'event',
+    label: event.event_type,
+    source: event.actor_type,
+    reason: event.actor_id,
+    created_at: event.created_at,
+    details: parseJsonSafe(event.details_json)
+  }));
+
+  if (includeSnapshots) {
+    const [archives, revisions] = await Promise.all([
+      env.DB.prepare(
+        `SELECT version, reason, source, archived_at
+         FROM listing_archives
+         WHERE listing_id = ?
+         ORDER BY archived_at DESC
+         LIMIT 30`
+      ).bind(listingId).all<{ version: number; reason: string | null; source: string | null; archived_at: string }>(),
+      env.DB.prepare(
+        `SELECT version, archived_reason, archived_at, created_at
+         FROM listing_revisions
+         WHERE listing_id = ?
+         ORDER BY created_at DESC
+         LIMIT 30`
+      ).bind(listingId).all<{ version: number; archived_reason: string | null; archived_at: string; created_at: string }>()
+    ]);
+
+    for (const archive of archives.results || []) {
+      timeline.push({
+        kind: 'archive',
+        label: 'snapshot.archived',
+        source: archive.source,
+        reason: archive.reason,
+        version: archive.version,
+        created_at: archive.archived_at
+      });
+    }
+    for (const revision of revisions.results || []) {
+      timeline.push({
+        kind: 'revision',
+        label: 'snapshot.revision',
+        reason: revision.archived_reason,
+        version: revision.version,
+        created_at: revision.created_at || revision.archived_at
+      });
+    }
+  }
+
+  return timeline.sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
 async function setListingStatus(env: Env, listingId: string, status: ListingRow['status'], extra: Record<string, unknown> = {}) {
   const fields = Object.keys(extra);
   const sql = [`UPDATE listings SET status = ?`];
@@ -1284,10 +1374,12 @@ async function handleManageFetch(env: Env, token: string) {
   if (!managed?.listing) {
     throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
   }
+  const timeline = await fetchListingTimeline(env, managed.listing.id, false);
   return json({
     ok: true,
     token_purpose: managed.tokenRow.purpose,
-    listing: listingToPublicJson(managed.listing)
+    listing: listingToPublicJson(managed.listing),
+    timeline
   });
 }
 
@@ -1318,6 +1410,7 @@ async function handleManageUpdate(request: Request, env: Env, token: string) {
   if (!LISTING_TYPES.includes(nextType as typeof LISTING_TYPES[number])) throw new HttpError(400, 'Nieprawidłowy typ ogłoszenia');
 
   await createArchiveSnapshot(env, listing, 'Edit before re-moderation', 'edit');
+  await createRevisionSnapshot(env, listing, 'Edit before re-moderation');
   const newVersion = listing.version + 1;
   const nextSlug = `${slugify(nextTitle)}-${listing.id.slice(0, 8)}`;
   await env.DB.prepare(
@@ -1504,7 +1597,37 @@ async function handleAdminListings(request: Request, env: Env) {
     .bind(...binds, limit)
     .all<ListingRow>();
   await logAdmin(env, { adminUsername: session.username, action: 'listings.list', ipAddress: getClientIp(request), details: { status } });
-  return json({ ok: true, items: (rows.results || []).map((listing) => ({ ...listingToPublicJson(listing), moderation_reason: listing.moderation_reason })) });
+  return json({ ok: true, items: (rows.results || []).map((listing) => ({
+    ...listingToPublicJson(listing),
+    moderation_reason: listing.moderation_reason,
+    moderation_status: listing.moderation_status,
+    version: listing.version
+  })) });
+}
+
+async function handleAdminListingHistory(request: Request, env: Env, listingId: string) {
+  const session = await requireAdminSession(request, env);
+  const listing = await fetchListingByIdOrSlug(env, listingId);
+  if (!listing) throw new HttpError(404, 'Ogłoszenie nie zostało znalezione');
+  const timeline = await fetchListingTimeline(env, listing.id, true);
+  await logAdmin(env, {
+    adminUsername: session.username,
+    action: 'listing.history',
+    targetType: 'listing',
+    targetId: listing.id,
+    ipAddress: getClientIp(request)
+  });
+  return json({
+    ok: true,
+    listing: {
+      ...listingToPublicJson(listing),
+      moderation_reason: listing.moderation_reason,
+      moderation_status: listing.moderation_status,
+      version: listing.version,
+      owner_email_normalized: listing.owner_email_normalized
+    },
+    timeline
+  });
 }
 
 async function handleAdminReports(request: Request, env: Env) {
@@ -1693,6 +1816,10 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     }
     if (pathname === '/api/admin/users' && request.method === 'GET') {
       return maybeWithCors(request, await handleAdminUsers(request, env));
+    }
+    if (pathname.startsWith('/api/admin/listings/') && pathname.endsWith('/history') && request.method === 'GET') {
+      const listingId = pathname.split('/')[4];
+      return maybeWithCors(request, await handleAdminListingHistory(request, env, listingId));
     }
     if (pathname.startsWith('/api/admin/listings/') && pathname.endsWith('/action') && request.method === 'POST') {
       const listingId = pathname.split('/')[4];

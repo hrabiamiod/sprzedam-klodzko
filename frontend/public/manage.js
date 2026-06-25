@@ -67,6 +67,42 @@ function publicListingUrl(listing) {
   return `${window.location.origin}/ogloszenie/${encodeURIComponent(listing.slug)}`;
 }
 
+function eventLabel(label) {
+  const labels = {
+    'listing.created': 'Ogłoszenie utworzone',
+    'listing.verified': 'E-mail/link zweryfikowany',
+    'listing.updated': 'Ogłoszenie edytowane',
+    'listing.extended': 'Ogłoszenie przedłużone',
+    'listing.deleted': 'Ogłoszenie usunięte',
+    'listing.approved': 'Ogłoszenie zatwierdzone linkiem',
+    'listing.moderation.approved': 'Moderacja zaakceptowała ogłoszenie',
+    'listing.moderation.rejected': 'Moderacja odrzuciła ogłoszenie',
+    'listing.reported': 'Dodano zgłoszenie naruszenia',
+    'admin.listing.approve': 'Administrator zatwierdził ogłoszenie',
+    'admin.listing.reject': 'Administrator odrzucił ogłoszenie',
+    'admin.listing.archive': 'Administrator zarchiwizował ogłoszenie',
+    'admin.listing.delete': 'Administrator usunął ogłoszenie'
+  };
+  return labels[label] || label;
+}
+
+function renderTimeline(items = []) {
+  if (!items.length) {
+    return '<div class="empty"><strong>Brak historii zmian.</strong><span>Historia pojawi się po moderacji, edycji albo przedłużeniu.</span></div>';
+  }
+  return `
+    <ol class="timeline-list">
+      ${items.map((item) => `
+        <li>
+          <strong>${esc(eventLabel(item.label))}</strong>
+          <span>${esc(formatDate(item.created_at))}</span>
+          ${item.version ? `<span>Wersja: ${esc(item.version)}</span>` : ''}
+        </li>
+      `).join('')}
+    </ol>
+  `;
+}
+
 async function fileToDataUrl(file) {
   if (!file) return null;
   return await new Promise((resolve, reject) => {
@@ -81,7 +117,7 @@ function getToken() {
   return new URLSearchParams(window.location.search).get('token') || '';
 }
 
-function renderListing(listing, tokenPurpose) {
+function renderListing(listing, tokenPurpose, timeline = []) {
   const image = listing.image_base64 ? `data:${listing.image_mime || 'image/jpeg'};base64,${listing.image_base64}` : '';
   const canManage = tokenPurpose === 'manage_listing';
   const publicUrl = publicListingUrl(listing);
@@ -199,6 +235,16 @@ function renderListing(listing, tokenPurpose) {
       </div>
       <pre class="message" id="manage-message" hidden></pre>
     </section>
+    <section class="publish-panel">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Historia</span>
+          <h2>Status i zdarzenia</h2>
+        </div>
+        <div class="status-note">To pomaga sprawdzić, na jakim etapie jest publikacja.</div>
+      </div>
+      ${renderTimeline(timeline)}
+    </section>
   `;
   if (!canManage) {
     const editSection = document.getElementById('edit-section');
@@ -216,7 +262,7 @@ async function init() {
   }
   const payload = await fetchJson(`/manage/${encodeURIComponent(token)}`);
   const listing = payload.listing;
-  renderListing(listing, payload.token_purpose);
+  renderListing(listing, payload.token_purpose, payload.timeline || []);
 
   const message = document.getElementById('manage-message');
   document.getElementById('copy-public-link')?.addEventListener('click', async () => {

@@ -89,6 +89,8 @@ function statusClass(status) {
 
 function moderationHint(item) {
   const parts = [];
+  if (item.version) parts.push(`wersja ${item.version}`);
+  if (item.moderation_status) parts.push(`moderacja: ${item.moderation_status}`);
   if (item.moderation_reason) parts.push(item.moderation_reason);
   if (Number.isFinite(Number(item.report_count)) && Number(item.report_count) > 0) parts.push(`${item.report_count} zgłoszeń`);
   if (item.expires_at) parts.push(`wygasa: ${formatDate(item.expires_at)}`);
@@ -120,6 +122,28 @@ function updateBulkBar() {
   count.textContent = `${selected} zaznaczonych`;
 }
 
+function eventLabel(label) {
+  const labels = {
+    'listing.created': 'Ogłoszenie utworzone',
+    'listing.verified': 'Zweryfikowane przez użytkownika',
+    'listing.updated': 'Edycja użytkownika',
+    'listing.extended': 'Przedłużenie publikacji',
+    'listing.deleted': 'Usunięcie przez użytkownika',
+    'listing.approved': 'Zatwierdzone linkiem',
+    'listing.moderation.approved': 'AI/moderacja zaakceptowała',
+    'listing.moderation.rejected': 'AI/moderacja odrzuciła',
+    'listing.reported': 'Zgłoszenie naruszenia',
+    'listing.report.processed': 'Zgłoszenie przetworzone',
+    'admin.listing.approve': 'Admin zatwierdził',
+    'admin.listing.reject': 'Admin odrzucił',
+    'admin.listing.archive': 'Admin zarchiwizował',
+    'admin.listing.delete': 'Admin usunął',
+    'snapshot.archived': 'Snapshot archiwalny',
+    'snapshot.revision': 'Snapshot rewizji'
+  };
+  return labels[label] || label;
+}
+
 function listingTable(items) {
   if (!items.length) return renderEmpty('Brak ogłoszeń w tym widoku.');
   return `
@@ -142,7 +166,7 @@ function listingTable(items) {
             <td><input type="checkbox" data-select-listing="${esc(item.id)}" ${adminState.selectedListings.has(item.id) ? 'checked' : ''} /></td>
             <td>
               <strong>${esc(item.title)}</strong>
-              <br /><a class="muted-link" href="/listing.html?slug=${encodeURIComponent(item.slug)}" target="_blank" rel="noopener">${esc(item.slug)}</a>
+              <br /><a class="muted-link" href="/ogloszenie/${encodeURIComponent(item.slug)}" target="_blank" rel="noopener">${esc(item.slug)}</a>
               <br /><span class="status-note">${esc(moderationHint(item))}</span>
             </td>
             <td><span class="tag ${statusClass(item.status)}">${esc(statusLabel(item.status))}</span></td>
@@ -155,6 +179,7 @@ function listingTable(items) {
                 <button class="button ghost small" data-listing-action="approve" data-id="${esc(item.id)}">${ACTION_LABELS.approve}</button>
                 <button class="button ghost small" data-listing-action="reject" data-id="${esc(item.id)}">${ACTION_LABELS.reject}</button>
                 <button class="button ghost small" data-listing-action="archive" data-id="${esc(item.id)}">${ACTION_LABELS.archive}</button>
+                <button class="button ghost small" data-history-id="${esc(item.id)}">Historia</button>
                 <button class="button ghost small danger-action" data-listing-action="delete" data-id="${esc(item.id)}">${ACTION_LABELS.delete}</button>
               </div>
             </td>
@@ -162,6 +187,40 @@ function listingTable(items) {
         `).join('')}
       </tbody>
     </table>
+  `;
+}
+
+function renderHistoryPanel(payload) {
+  const listing = payload.listing || {};
+  const timeline = payload.timeline || [];
+  return `
+    <div class="history-card">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Historia ogłoszenia</span>
+          <h3>${esc(listing.title || 'Ogłoszenie')}</h3>
+        </div>
+        <button class="button ghost small" type="button" data-close-history>Zamknij</button>
+      </div>
+      <div class="pill-row">
+        <span class="tag ${statusClass(listing.status)}">${esc(statusLabel(listing.status))}</span>
+        <span class="tag">Wersja ${esc(listing.version || 1)}</span>
+        <span class="tag">${esc(listing.owner_email_normalized || '')}</span>
+      </div>
+      ${timeline.length ? `
+        <ol class="timeline-list">
+          ${timeline.map((item) => `
+            <li>
+              <strong>${esc(eventLabel(item.label))}</strong>
+              <span>${esc(formatDate(item.created_at))}</span>
+              ${item.source ? `<span>Źródło: ${esc(item.source)}</span>` : ''}
+              ${item.reason ? `<span>Powód: ${esc(item.reason)}</span>` : ''}
+              ${item.version ? `<span>Wersja: ${esc(item.version)}</span>` : ''}
+            </li>
+          `).join('')}
+        </ol>
+      ` : '<div class="empty"><strong>Brak historii.</strong><span>Nie znaleziono zdarzeń dla tego ogłoszenia.</span></div>'}
+    </div>
   `;
 }
 
@@ -322,6 +381,17 @@ async function loadLogs() {
   document.getElementById('admin-logs').innerHTML = logTable(payload.items || []);
 }
 
+async function loadListingHistory(id) {
+  if (!id) return;
+  const target = document.getElementById('admin-history');
+  if (!target) return;
+  target.hidden = false;
+  target.innerHTML = '<div class="status-note">Ładowanie historii...</div>';
+  const payload = await fetchJson(`/admin/listings/${encodeURIComponent(id)}/history`);
+  target.innerHTML = renderHistoryPanel(payload);
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function actionOnListing(id, action) {
   if (!id) return;
   const defaultReason = action === 'approve' ? 'Zatwierdzone przez administratora' : ACTION_LABELS[action] || action;
@@ -408,6 +478,7 @@ document.addEventListener('click', (event) => {
   const listingAction = target.dataset.listingAction;
   const reportAction = target.dataset.reportAction;
   const bulkListingAction = target.dataset.bulkListingAction;
+  const historyId = target.dataset.historyId;
   if (listingAction) {
     actionOnListing(target.dataset.id, listingAction).catch((error) => alert(error.message || String(error)));
   }
@@ -416,6 +487,16 @@ document.addEventListener('click', (event) => {
   }
   if (bulkListingAction) {
     bulkActionOnListings(bulkListingAction).catch((error) => alert(error.message || String(error)));
+  }
+  if (historyId) {
+    loadListingHistory(historyId).catch((error) => alert(error.message || String(error)));
+  }
+  if (target.dataset.closeHistory !== undefined) {
+    const history = document.getElementById('admin-history');
+    if (history) {
+      history.hidden = true;
+      history.innerHTML = '';
+    }
   }
 });
 document.addEventListener('change', (event) => {
