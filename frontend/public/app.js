@@ -673,66 +673,88 @@ async function initListingPage() {
   const listing = payload.item;
   const image = listing.image_base64 ? `data:${listing.image_mime || 'image/jpeg'};base64,${listing.image_base64}` : '';
   const publicUrl = `${window.location.origin}/ogloszenie/${encodeURIComponent(listing.slug)}`;
+  const publishedDate = new Date(listing.created_at).toLocaleDateString('pl-PL');
+  const expiresDate = listing.expires_at ? new Date(listing.expires_at).toLocaleDateString('pl-PL') : 'brak danych';
   updateListingMeta(listing, publicUrl, image);
   root.innerHTML = `
-    <div class="detail-hero">
-      <div class="detail-media">
-        ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : '<div class="no-image">Brak zdjęcia</div>'}
+    <div class="detail-hero detail-hero-v2">
+      <div class="detail-media-wrap">
+        <div class="detail-media">
+          ${image ? `<img src="${image}" alt="${esc(listing.title)}" />` : '<div class="no-image">Brak zdjęcia</div>'}
+        </div>
+        <div class="detail-trust-grid">
+          <div><strong>Moderowane</strong><span>Ogłoszenie przeszło kontrolę treści.</span></div>
+          <div><strong>Kontakt chroniony</strong><span>Dane pokazujemy po weryfikacji anty-bot.</span></div>
+          <div><strong>Lokalnie</strong><span>${esc(listing.city || 'Kłodzko')} i okolice.</span></div>
+        </div>
       </div>
-      <aside class="detail-panel">
+      <aside class="detail-panel detail-panel-v2">
         <div class="pill-row">
           <span class="pill">${esc(listing.type)}</span>
           <span class="pill gray">${esc(listing.category)}</span>
+          ${listing.is_featured ? '<span class="pill featured-pill">Wyróżnione</span>' : ''}
         </div>
         <h1 class="detail-title">${esc(listing.title)}</h1>
         <div class="detail-price">${money(listing.price_cents, listing.currency)}</div>
-        <div class="detail-meta">
-          <span class="pill gray">${esc(listing.city || 'Kłodzko')}</span>
-          <span class="pill gray">${new Date(listing.created_at).toLocaleDateString('pl-PL')}</span>
-        </div>
-        <div class="contact-reveal" id="contact-card">
-          <strong>Kontakt</strong>
-          <p class="status-note">Dane kontaktowe pokażemy po krótkiej weryfikacji anty-bot.</p>
+        <dl class="detail-facts">
+          <div><dt>Miejscowość</dt><dd>${esc(listing.city || 'Kłodzko')}</dd></div>
+          <div><dt>Dodano</dt><dd>${esc(publishedDate)}</dd></div>
+          <div><dt>Wygasa</dt><dd>${esc(expiresDate)}</dd></div>
+          <div><dt>Zgłoszenia</dt><dd>${esc(listing.report_count || 0)}</dd></div>
+        </dl>
+        <div class="contact-reveal contact-card-v2" id="contact-card">
+          <span class="eyebrow">Kontakt ze sprzedającym</span>
+          <strong>Pokaż dane dopiero, gdy chcesz realnie rozmawiać.</strong>
+          <p class="status-note">Chronimy adres e-mail i telefon przed automatycznym zeskrobywaniem. Po weryfikacji możesz napisać albo zadzwonić.</p>
           <div class="turnstile-slot" id="contact-turnstile-slot"></div>
           <input type="hidden" id="contact-turnstile-token" />
           <button class="button primary" id="contact-reveal-button" type="button">Pokaż kontakt</button>
         </div>
-        <div class="pill-row">
-          <span class="tag ok">Aktywne</span>
-          <span class="tag">${esc(listing.report_count || 0)} zgłoszeń</span>
+        <div class="detail-action-row">
+          <button class="button ghost" id="share-button" type="button">Kopiuj link</button>
+          <button class="button ghost danger-action" id="report-button" type="button">Zgłoś naruszenie</button>
         </div>
       </aside>
     </div>
-    <div class="detail-copy">
-      <span class="eyebrow">Opis</span>
-      <p>${esc(listing.description).replace(/\n/g, '<br />')}</p>
+    <div class="detail-content-grid">
+      <article class="detail-copy detail-copy-card">
+        <span class="eyebrow">Opis ogłoszenia</span>
+        <p>${esc(listing.description).replace(/\n/g, '<br />')}</p>
+      </article>
+      <aside class="buyer-checklist">
+        <span class="eyebrow">Przed kontaktem</span>
+        <h2>Trzy szybkie kontrole.</h2>
+        <ol>
+          <li><strong>Porównaj cenę</strong><span>Za niska cena to często sygnał ostrzegawczy.</span></li>
+          <li><strong>Ustal odbiór lokalny</strong><span>Najbezpieczniej spotkać się w publicznym miejscu.</span></li>
+          <li><strong>Nie wysyłaj zaliczek</strong><span>Jeśli coś wygląda podejrzanie, użyj zgłoszenia.</span></li>
+        </ol>
+      </aside>
     </div>
-    <section class="safety-card">
+    <section class="safety-card safety-card-v2">
       <div>
         <span class="eyebrow">Bezpieczny kontakt</span>
-        <h2>Sprawdź ofertę lokalnie przed płatnością.</h2>
+        <h2>Serwis pomaga filtrować spam, ale transakcję weryfikujesz Ty.</h2>
       </div>
-      <ul>
-        <li>Nie wysyłaj zaliczek bez pewności, że znasz sprzedającego.</li>
-        <li>Umawiaj odbiór w bezpiecznym, publicznym miejscu.</li>
-        <li>Zgłoś ogłoszenie, jeśli dane kontaktowe albo treść wyglądają podejrzanie.</li>
-      </ul>
+      <div class="safety-points">
+        <span>Nie klikaj podejrzanych linków od sprzedającego.</span>
+        <span>Nie podawaj kodów BLIK ani danych logowania.</span>
+        <span>Zgłoś ofertę, jeśli kontakt próbuje przenieść rozmowę na dziwne płatności.</span>
+      </div>
     </section>
-    <div class="detail-footer">
-      <a class="button ghost" href="/">Wróć do listy</a>
-      <div class="row-actions">
-        <button class="button ghost" id="share-button" type="button">Kopiuj link</button>
-        <button class="button primary" id="report-button" type="button">Zgłoś naruszenie</button>
+    <form id="report-form" class="form-grid report-card" hidden>
+      <div class="full report-head">
+        <span class="eyebrow">Zgłoszenie</span>
+        <h2>Pomóż utrzymać lokalny rynek w czystości.</h2>
+        <p class="status-note">Zgłoszenie trafia do moderacji i zwiększa licznik ryzyka dla ogłoszenia.</p>
       </div>
-    </div>
-    <form id="report-form" class="form-grid" hidden>
       <label class="full">
         <span>Powód zgłoszenia</span>
-        <input name="reason" class="input" required />
+        <input name="reason" class="input" required placeholder="np. oszustwo, spam, nielegalna treść" />
       </label>
       <label class="full">
         <span>Szczegóły</span>
-        <textarea name="details" class="input textarea"></textarea>
+        <textarea name="details" class="input textarea" placeholder="Co dokładnie wygląda podejrzanie?"></textarea>
       </label>
       <label class="full">
         <span>E-mail (opcjonalnie)</span>
@@ -743,6 +765,10 @@ async function initListingPage() {
       <button class="button primary" type="submit">Wyślij zgłoszenie</button>
     </form>
     <pre class="message" id="report-message" hidden></pre>
+    <div class="detail-footer">
+      <a class="button ghost" href="/">Wróć do listy</a>
+      <a class="button ghost" href="/#add">Dodaj podobne ogłoszenie</a>
+    </div>
   `;
   renderTurnstile('contact-turnstile-slot', 'contact-turnstile-token');
   document.getElementById('share-button')?.addEventListener('click', async () => {
@@ -787,12 +813,14 @@ async function initListingPage() {
       const card = document.getElementById('contact-card');
       if (card) {
         card.innerHTML = `
-          <strong>Kontakt</strong>
-          <p>${esc(contact.name || '')}<br />${esc(contact.email || '')}${contact.phone ? `<br />${esc(contact.phone)}` : ''}</p>
+          <span class="eyebrow">Kontakt odblokowany</span>
+          <strong>${esc(contact.name || 'Sprzedający')}</strong>
+          <p>${esc(contact.email || '')}${contact.phone ? `<br />${esc(contact.phone)}` : ''}</p>
           <div class="hero-actions">
-            <a class="button small ghost" href="mailto:${esc(contact.email || '')}">Napisz e-mail</a>
+            <a class="button small primary" href="mailto:${esc(contact.email || '')}">Napisz e-mail</a>
             ${contact.phone ? `<a class="button small ghost" href="tel:${esc(contact.phone)}">Zadzwoń</a>` : ''}
           </div>
+          <span class="status-note">Nie wysyłaj zaliczek ani kodów płatności przed weryfikacją sprzedającego.</span>
         `;
       }
       if (message) {
