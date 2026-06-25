@@ -152,8 +152,8 @@ Frontend jest w `frontend/public`.
 
 Repo jest przygotowane do deployu z GitHuba:
 
-- `CI` uruchamia `npm run check` na pushach i pull requestach.
-- `Deploy Worker` wdraża Workera na `main`.
+- `CI` uruchamia `npm run check` oraz `npm run e2e:local` na pushach i pull requestach.
+- `Deploy Worker` na `main` robi `npm ci`, `npm run check`, `npm run e2e:local`, `wrangler deploy --env prod --dry-run`, a dopiero potem właściwy deploy Workera.
 
 Wymagane sekrety w GitHub:
 
