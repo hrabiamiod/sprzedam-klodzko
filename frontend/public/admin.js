@@ -231,9 +231,10 @@ function reportTable(items) {
       <thead>
         <tr>
           <th>Data</th>
+          <th>Ryzyko</th>
+          <th>Zgłoszenie</th>
           <th>Ogłoszenie</th>
-          <th>Powód</th>
-          <th>Status</th>
+          <th>Stan</th>
           <th>Akcje</th>
         </tr>
       </thead>
@@ -241,13 +242,31 @@ function reportTable(items) {
         ${items.map((item) => `
           <tr>
             <td>${esc(formatDate(item.created_at))}</td>
-            <td>${esc(item.title)}<br /><span class="status-note">${esc(item.slug)}</span></td>
-            <td>${esc(item.reason)}</td>
-            <td><span class="tag ${item.status === 'pending' ? 'warn' : 'ok'}">${esc(item.status === 'pending' ? 'Oczekuje' : item.status)}</span></td>
+            <td>
+              <span class="tag ${Number(item.listing_report_count || 0) >= 3 ? 'bad' : item.status === 'pending' ? 'warn' : 'ok'}">${esc(item.listing_report_count || 1)} zgł.</span>
+              ${item.ai_flagged ? '<br /><span class="tag bad">AI flag</span>' : ''}
+            </td>
+            <td>
+              <strong>${esc(item.reason)}</strong>
+              ${item.details ? `<br /><span class="status-note">${esc(item.details)}</span>` : ''}
+              ${item.reporter_email ? `<br /><span class="status-note">Reporter: ${esc(item.reporter_email)}</span>` : ''}
+            </td>
+            <td>
+              <a class="muted-link" href="/ogloszenie/${encodeURIComponent(item.slug)}" target="_blank" rel="noopener">${esc(item.title)}</a>
+              <br /><span class="status-note">${esc(item.slug)}</span>
+              <br /><span class="status-note">Kontakt: ${esc(item.listing_contact_email || '')}</span>
+              ${item.listing_moderation_reason ? `<br /><span class="status-note">Moderacja: ${esc(item.listing_moderation_reason)}</span>` : ''}
+            </td>
+            <td>
+              <span class="tag ${item.status === 'pending' ? 'warn' : 'ok'}">${esc(item.status === 'pending' ? 'Oczekuje' : item.status)}</span>
+              <br /><span class="tag ${statusClass(item.listing_status)}">${esc(statusLabel(item.listing_status))}</span>
+              ${item.listing_report_status ? `<br /><span class="status-note">Raport: ${esc(item.listing_report_status)}</span>` : ''}
+            </td>
             <td>
               <div class="row-actions">
                 <button class="button ghost small" data-report-action="resolve" data-id="${esc(item.id)}">Oznacz obsłużone</button>
                 <button class="button ghost small" data-report-action="dismiss" data-id="${esc(item.id)}">Odrzuć zgłoszenie</button>
+                <button class="button ghost small" data-history-id="${esc(item.listing_id)}">Historia</button>
               </div>
             </td>
           </tr>

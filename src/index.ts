@@ -1662,10 +1662,21 @@ async function handleAdminListingHistory(request: Request, env: Env, listingId: 
 async function handleAdminReports(request: Request, env: Env) {
   const session = await requireAdminSession(request, env);
   const rows = await env.DB.prepare(
-    `SELECT r.*, l.title, l.slug, l.status AS listing_status
+    `SELECT
+       r.*,
+       l.title,
+       l.slug,
+       l.status AS listing_status,
+       l.report_count AS listing_report_count,
+       l.report_status AS listing_report_status,
+       l.moderation_reason AS listing_moderation_reason,
+       l.contact_email AS listing_contact_email
      FROM listing_reports r
      JOIN listings l ON l.id = r.listing_id
-     ORDER BY r.created_at DESC LIMIT 100`
+     ORDER BY
+       CASE r.status WHEN 'pending' THEN 0 WHEN 'processed' THEN 1 ELSE 2 END,
+       r.created_at DESC
+     LIMIT 100`
   ).all();
   await logAdmin(env, { adminUsername: session.username, action: 'reports.list', ipAddress: getClientIp(request) });
   return json({ ok: true, items: rows.results || [] });
