@@ -99,6 +99,14 @@ const dashboard = await requestJson('/api/admin/dashboard', { headers: { cookie 
 assert(dashboard.response.status === 200 && dashboard.payload.ok === true && dashboard.payload.data, `Dashboard failed: ${dashboard.response.status}`);
 console.log('OK admin dashboard');
 
+const listings = await requestJson('/api/admin/listings?limit=5', { headers: { cookie } });
+assert(listings.response.status === 200 && Array.isArray(listings.payload.items), `Admin listings failed: ${listings.response.status}`);
+if (listings.payload.items.length) {
+  const item = listings.payload.items[0];
+  assert('contact_email' in item && 'owner_email_normalized' in item, 'Admin listings are missing contact context');
+}
+console.log('OK admin listings contact context');
+
 const sessions = await requestJson('/api/admin/sessions', { headers: { cookie } });
 assert(sessions.response.status === 200 && Array.isArray(sessions.payload.items), `Sessions failed: ${sessions.response.status}`);
 assert(sessions.payload.items.some((item) => item.current), 'Current admin session not marked');

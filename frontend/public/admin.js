@@ -2,7 +2,10 @@ const config = Object.assign({}, window.APP_CONFIG || {});
 const adminState = {
   selectedListings: new Set(),
   currentStatus: '',
-  me: null
+  me: null,
+  dashboard: null,
+  listings: [],
+  reports: []
 };
 
 const STATUS_LABELS = {
@@ -103,6 +106,108 @@ function moderationHint(item) {
   if (item.is_featured) parts.push(`wyróżnione do: ${formatDate(item.featured_until)}`);
   if (item.expires_at) parts.push(`wygasa: ${formatDate(item.expires_at)}`);
   return parts.join(' · ');
+}
+
+function listingPriority(item) {
+  if (item.status === 'pending') return { label: 'Moderacja', level: 'warn', score: 80 };
+  if (Number(item.report_count || 0) >= 3) return { label: 'Wysokie ryzyko', level: 'bad', score: 95 };
+  if (Number(item.report_count || 0) > 0) return { label: 'Zgłoszenia', level: 'warn', score: 70 };
+  if (item.status === 'approved' && item.expires_at && new Date(item.expires_at).getTime() < Date.now() + 3 * 24 * 60 * 60 * 1000) {
+    return { label: 'Wygasa', level: 'warn', score: 45 };
+  }
+  return { label: statusLabel(item.status), level: statusClass(item.status), score: 10 };
+}
+
+function renderWorkbench() {
+  const target = document.getElementById('admin-workbench');
+  if (!target) return;
+  const dashboard = adminState.dashboard?.data || {};
+  const pendingListings = adminState.listings.filter((item) => item.status === 'pending');
+  const riskyListings = adminState.listings
+    .filter((item) => Number(item.report_count || 0) > 0)
+    .sort((a, b) => Number(b.report_count || 0) - Number(a.report_count || 0));
+  const pendingReports = adminState.reports.filter((item) => item.status === 'pending');
+  const workItems = [
+    ...pendingReports.slice(0, 4).map((item) => ({
+      type: 'report',
+      id: item.id,
+      listingId: item.listing_id,
+      title: item.title || item.reason,
+      meta: `${item.reason} · ${item.listing_report_count || 1} zgł.`,
+      detail: item.details || item.listing_moderation_reason || 'Zgłoszenie oczekuje na decyzję moderatora.',
+      badge: Number(item.listing_report_count || 0) >= 3 ? 'Wysokie ryzyko' : 'Zgłoszenie',
+      level: Number(item.listing_report_count || 0) >= 3 ? 'bad' : 'warn',
+      score: Number(item.listing_report_count || 1) * 30 + 20
+    })),
+    ...pendingListings.slice(0, 4).map((item) => ({
+      type: 'listing',
+      id: item.id,
+      listingId: item.id,
+      title: item.title,
+      meta: `${item.type} / ${item.category} / ${money(item.price_cents, item.currency)}`,
+      detail: moderationHint(item) || 'Ogłoszenie oczekuje na decyzję moderatora.',
+      badge: 'Moderacja',
+      level: 'warn',
+      score: 80
+    })),
+    ...riskyListings.slice(0, 3).map((item) => {
+      const priority = listingPriority(item);
+      return {
+        type: 'listing',
+        id: item.id,
+        listingId: item.id,
+        title: item.title,
+        meta: `${item.report_count || 0} zgłoszeń · ${statusLabel(item.status)}`,
+        detail: moderationHint(item) || 'Ogłoszenie ma sygnały ryzyka.',
+        badge: priority.label,
+        level: priority.level,
+        score: priority.score
+      };
+    })
+  ]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6);
+
+  target.innerHTML = `
+    <div class="workbench-summary">
+      <article class="${Number(dashboard.pending || 0) ? 'warn' : 'ok'}">
+        <strong>${esc(dashboard.pending || 0)}</strong>
+        <span>ogłoszeń do decyzji</span>
+        <button class="button ghost small" type="button" data-workbench-status="pending">Pokaż</button>
+      </article>
+      <article class="${Number(dashboard.reports || 0) ? 'warn' : 'ok'}">
+        <strong>${esc(dashboard.reports || 0)}</strong>
+        <span>zgłoszeń użytkowników</span>
+        <a class="button ghost small" href="#reports">Otwórz</a>
+      </article>
+      <article class="${riskyListings.length ? 'bad' : 'ok'}">
+        <strong>${esc(riskyListings.length)}</strong>
+        <span>ogłoszeń z ryzykiem</span>
+        <button class="button ghost small" type="button" data-workbench-status="">Pokaż wszystkie</button>
+      </article>
+    </div>
+    ${workItems.length ? `
+      <div class="workbench-list">
+        ${workItems.map((item) => `
+          <article class="work-item ${esc(item.level)}">
+            <div>
+              <span class="tag ${esc(item.level)}">${esc(item.badge)}</span>
+              <h3>${esc(item.title)}</h3>
+              <p>${esc(item.detail)}</p>
+              <span class="status-note">${esc(item.meta)}</span>
+            </div>
+            <div class="work-actions">
+              ${item.type === 'listing' ? `<button class="button primary small" data-listing-action="approve" data-id="${esc(item.id)}">Zatwierdź</button>` : ''}
+              ${item.type === 'listing' ? `<button class="button ghost small" data-listing-action="reject" data-id="${esc(item.id)}">Odrzuć</button>` : ''}
+              ${item.type === 'report' ? `<button class="button primary small" data-report-action="resolve" data-id="${esc(item.id)}">Obsłużone</button>` : ''}
+              ${item.type === 'report' ? `<button class="button ghost small" data-report-action="dismiss" data-id="${esc(item.id)}">Oddal</button>` : ''}
+              <button class="button ghost small" data-history-id="${esc(item.listingId)}">Historia</button>
+            </div>
+          </article>
+        `).join('')}
+      </div>
+    ` : '<div class="empty"><strong>Brak pilnych zadań.</strong><span>Monitoruj zgłoszenia, kolejkę zadań i bezpieczeństwo ruchu.</span></div>'}
+  `;
 }
 
 function renderEmpty(message) {
@@ -602,6 +707,7 @@ async function logout() {
 
 async function loadDashboard() {
   const dashboard = await fetchJson('/admin/dashboard');
+  adminState.dashboard = dashboard;
   document.getElementById('metrics').innerHTML = [
     metricCard('Do moderacji', dashboard.data.pending),
     metricCard('Zgłoszenia', dashboard.data.reports),
@@ -610,6 +716,7 @@ async function loadDashboard() {
     metricCard('Odrzucone', dashboard.data.rejected),
     metricCard('Publikujący', dashboard.data.users)
   ].join('');
+  renderWorkbench();
 }
 
 async function loadSystem() {
@@ -625,12 +732,16 @@ async function loadListings() {
     if (!visibleIds.has(id)) adminState.selectedListings.delete(id);
   });
   document.getElementById('admin-listings').innerHTML = listingTable(payload.items || []);
+  adminState.listings = payload.items || [];
   updateBulkBar();
+  renderWorkbench();
 }
 
 async function loadReports() {
   const payload = await fetchJson('/admin/reports');
+  adminState.reports = payload.items || [];
   document.getElementById('admin-reports').innerHTML = reportTable(payload.items || []);
+  renderWorkbench();
 }
 
 async function loadUsers() {
@@ -741,6 +852,7 @@ async function bootstrap(skipLoginCheck = false) {
 document.getElementById('login-form')?.addEventListener('submit', login);
 document.getElementById('logout-button')?.addEventListener('click', logout);
 document.getElementById('refresh-admin')?.addEventListener('click', () => bootstrap(true).catch((error) => alert(error.message || String(error))));
+document.getElementById('refresh-workbench')?.addEventListener('click', () => bootstrap(true).catch((error) => alert(error.message || String(error))));
 document.getElementById('refresh-system')?.addEventListener('click', () => loadSystem().catch((error) => alert(error.message || String(error))));
 document.getElementById('refresh-security')?.addEventListener('click', () => loadSecurity().catch((error) => alert(error.message || String(error))));
 document.getElementById('refresh-sessions')?.addEventListener('click', () => loadSessions().catch((error) => alert(error.message || String(error))));
@@ -766,6 +878,7 @@ document.addEventListener('click', (event) => {
   const bulkListingAction = target.dataset.bulkListingAction;
   const historyId = target.dataset.historyId;
   const sessionRevoke = target.dataset.sessionRevoke;
+  const workbenchStatus = target.dataset.workbenchStatus;
   if (listingAction) {
     actionOnListing(target.dataset.id, listingAction).catch((error) => alert(error.message || String(error)));
   }
@@ -780,6 +893,15 @@ document.addEventListener('click', (event) => {
   }
   if (sessionRevoke) {
     revokeAdminSession(sessionRevoke).catch((error) => alert(error.message || String(error)));
+  }
+  if (workbenchStatus !== undefined) {
+    document.querySelectorAll('[data-admin-status]').forEach((node) => node.classList.toggle('active', node.getAttribute('data-admin-status') === workbenchStatus));
+    adminState.currentStatus = workbenchStatus || '';
+    const statusFilter = document.getElementById('listing-status-filter');
+    if (statusFilter) statusFilter.value = adminState.currentStatus;
+    adminState.selectedListings.clear();
+    document.getElementById('moderation')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    loadListings().catch((error) => alert(error.message || String(error)));
   }
   if (target.dataset.closeHistory !== undefined) {
     const history = document.getElementById('admin-history');

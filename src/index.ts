@@ -1980,7 +1980,11 @@ async function handleAdminListings(request: Request, env: Env) {
     ...listingToPublicJson(listing),
     moderation_reason: listing.moderation_reason,
     moderation_status: listing.moderation_status,
-    version: listing.version
+    version: listing.version,
+    contact_name: listing.contact_name,
+    contact_email: listing.contact_email,
+    contact_phone: listing.contact_phone,
+    owner_email_normalized: listing.owner_email_normalized
   })) });
 }
 

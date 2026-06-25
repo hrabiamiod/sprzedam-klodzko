@@ -107,6 +107,100 @@
   margin-bottom: 12px;
 }
 
+.admin-workbench {
+  border-color: rgba(17, 124, 111, 0.22);
+  background:
+    linear-gradient(135deg, rgba(17, 124, 111, 0.08), rgba(36, 87, 166, 0.06)),
+    var(--surface);
+}
+
+.workbench-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.workbench-summary article {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.76);
+}
+
+.workbench-summary article.warn {
+  border-color: rgba(183, 121, 31, 0.28);
+}
+
+.workbench-summary article.bad {
+  border-color: rgba(185, 28, 28, 0.28);
+}
+
+.workbench-summary article.ok {
+  border-color: rgba(15, 118, 110, 0.22);
+}
+
+.workbench-summary strong {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.workbench-summary span {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.workbench-list {
+  display: grid;
+  gap: 10px;
+}
+
+.work-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.78);
+}
+
+.work-item.warn {
+  border-left-color: var(--amber);
+}
+
+.work-item.bad {
+  border-left-color: var(--danger);
+}
+
+.work-item.ok {
+  border-left-color: var(--accent);
+}
+
+.work-item h3 {
+  margin: 8px 0 6px;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+.work-item p {
+  margin: 0 0 6px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.work-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 230px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -232,4 +326,10 @@ th {
 @media (max-width: 960px) {
   .admin-command { grid-template-columns: 1fr; }
   .system-split { grid-template-columns: 1fr; }
+  .workbench-summary { grid-template-columns: 1fr; }
+  .work-item { grid-template-columns: 1fr; }
+  .work-actions {
+    justify-content: flex-start;
+    min-width: 0;
+  }
 }
