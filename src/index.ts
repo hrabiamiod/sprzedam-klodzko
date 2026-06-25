@@ -742,6 +742,14 @@ function listingToPublicJson(listing: ListingRow) {
   };
 }
 
+function listingToPublicSummaryJson(listing: ListingRow) {
+  const item = listingToPublicJson(listing) as Record<string, unknown>;
+  delete item.contact_name;
+  delete item.contact_email;
+  delete item.contact_phone;
+  return item;
+}
+
 function listingPublicationStatus(env: Env, listing: ListingRow) {
   const publicUrl = buildAbsoluteUrl(cfg(env).siteBaseUrl, `/ogloszenie/${listing.slug}`);
   if (listing.status === 'approved') {
@@ -1248,7 +1256,7 @@ async function handlePublicList(request: Request, env: Env) {
     limit,
     sort,
     total: total?.count || 0,
-    items: (rows.results || []).map(listingToPublicJson)
+    items: (rows.results || []).map(listingToPublicSummaryJson)
   });
 }
 
