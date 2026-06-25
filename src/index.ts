@@ -738,6 +738,86 @@ function listingToPublicJson(listing: ListingRow) {
   };
 }
 
+function listingPublicationStatus(env: Env, listing: ListingRow) {
+  const publicUrl = buildAbsoluteUrl(cfg(env).siteBaseUrl, `/ogloszenie/${listing.slug}`);
+  if (listing.status === 'approved') {
+    return {
+      state: 'live',
+      label: 'Opublikowane',
+      tone: 'ok',
+      summary: 'Ogłoszenie jest widoczne publicznie.',
+      detail: listing.expires_at ? `Publikacja wygasa ${toPrettyDate(listing.expires_at)}.` : 'Publikacja nie ma ustawionej daty wygaśnięcia.',
+      next_steps: ['Możesz udostępnić link publiczny.', 'Możesz edytować ogłoszenie, ale po edycji wróci do moderacji.', 'Przedłuż ogłoszenie przed wygaśnięciem.'],
+      public_url: publicUrl,
+      can_edit: true,
+      can_extend: true
+    };
+  }
+  if (listing.status === 'pending' && !listing.verified_at) {
+    return {
+      state: 'needs_verification',
+      label: 'Wymaga potwierdzenia',
+      tone: 'warn',
+      summary: 'Ogłoszenie jest zapisane, ale nie trafiło jeszcze do moderacji.',
+      detail: 'Użyj linku weryfikacyjnego, który pokazaliśmy po dodaniu ogłoszenia.',
+      next_steps: ['Otwórz link weryfikacyjny zapisany po dodaniu ogłoszenia.', 'Po potwierdzeniu ogłoszenie automatycznie trafi do moderacji.'],
+      public_url: null,
+      can_edit: false,
+      can_extend: false
+    };
+  }
+  if (listing.status === 'pending') {
+    return {
+      state: 'moderation',
+      label: 'W moderacji',
+      tone: 'warn',
+      summary: 'Ogłoszenie czeka na automatyczną lub ręczną moderację.',
+      detail: listing.moderation_reason || 'Po akceptacji zostanie opublikowane automatycznie.',
+      next_steps: ['Nie musisz nic robić.', 'Odśwież ten ekran za chwilę, żeby sprawdzić wynik.', 'Jeśli edytowałeś ogłoszenie, nowa wersja też przechodzi moderację.'],
+      public_url: null,
+      can_edit: false,
+      can_extend: false
+    };
+  }
+  if (listing.status === 'rejected') {
+    return {
+      state: 'rejected',
+      label: 'Odrzucone',
+      tone: 'bad',
+      summary: 'Ogłoszenie nie zostało opublikowane.',
+      detail: listing.moderation_reason || listing.archived_reason || 'Moderacja odrzuciła treść ogłoszenia.',
+      next_steps: ['Sprawdź powód odrzucenia.', 'Dodaj nowe ogłoszenie z poprawioną treścią, jeśli chcesz spróbować ponownie.'],
+      public_url: null,
+      can_edit: false,
+      can_extend: false
+    };
+  }
+  if (listing.status === 'expired') {
+    return {
+      state: 'expired',
+      label: 'Wygasłe',
+      tone: 'warn',
+      summary: 'Ogłoszenie nie jest już widoczne publicznie.',
+      detail: listing.expires_at ? `Wygasło ${toPrettyDate(listing.expires_at)}.` : 'Termin publikacji minął.',
+      next_steps: ['Użyj przycisku przedłużenia, jeśli chcesz ponownie opublikować ogłoszenie.'],
+      public_url: null,
+      can_edit: false,
+      can_extend: false
+    };
+  }
+  return {
+    state: 'archived',
+    label: 'Archiwum',
+    tone: 'bad',
+    summary: 'Ogłoszenie jest zarchiwizowane i nie jest widoczne publicznie.',
+    detail: listing.deleted_reason || listing.archived_reason || 'Ogłoszenie zostało zdjęte z publikacji.',
+    next_steps: ['Jeśli chcesz wystawić ofertę ponownie, dodaj nowe ogłoszenie.'],
+    public_url: null,
+    can_edit: false,
+    can_extend: false
+  };
+}
+
 async function countRecentByEmail(env: Env, emailNormalized: string, days: number) {
   const since = daysFromNow(-days);
   const row = await env.DB.prepare(
@@ -1437,6 +1517,7 @@ async function handleManageFetch(env: Env, token: string) {
     ok: true,
     token_purpose: managed.tokenRow.purpose,
     listing: listingToPublicJson(managed.listing),
+    publication_status: listingPublicationStatus(env, managed.listing),
     timeline
   });
 }

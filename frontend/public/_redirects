@@ -1,4 +1,3 @@
 /ogloszenie/:slug /listing?slug=:slug 200
 /kategoria/:slug /category?slug=:slug 200
-/manage /manage.html 200
 /admin /admin/index.html 200

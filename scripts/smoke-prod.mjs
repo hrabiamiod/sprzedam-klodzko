@@ -46,6 +46,7 @@ await check('API listings', () => expectJson('/api/listings?limit=3', (payload) 
 await check('API listings filters', () => expectJson('/api/listings?limit=3&sort=price_asc&min_price=0&max_price=100000', (payload) => payload.ok === true && payload.sort === 'price_asc' && Array.isArray(payload.items)));
 await check('Homepage', () => expectHtml('/', 'Sprzedam Kłodzko'));
 await check('Admin login page', () => expectHtml('/admin/', 'Logowanie administratora'));
+await check('Manage page', () => expectHtml('/manage', 'manage-root'));
 await check('Category page', () => expectHtml('/kategoria/elektronika', 'category-root'));
 await check('Sitemap', () => expectStatus('/sitemap.xml', 200, { redirect: 'manual' }));
 await check('Public listing create is blocked without human verification', async () => {

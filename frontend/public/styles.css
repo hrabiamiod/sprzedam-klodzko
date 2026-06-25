@@ -343,12 +343,54 @@ label span {
 }
 .pill.danger, .tag.bad { background: rgba(180, 35, 24, 0.12); color: var(--danger); }
 .tag.ok { background: rgba(8, 116, 67, 0.12); color: var(--ok); }
+.tag.warn { background: rgba(183, 121, 31, 0.14); color: var(--amber); }
 .danger-action {
   color: var(--danger);
   border-color: rgba(180, 35, 24, 0.22);
 }
 .manage-metrics {
   margin-bottom: 16px;
+}
+.status-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+.status-card.ok {
+  border-color: rgba(8, 116, 67, 0.22);
+  background: linear-gradient(135deg, rgba(8, 116, 67, 0.10), rgba(255,255,255,0.72));
+}
+.status-card.warn {
+  border-color: rgba(183, 121, 31, 0.28);
+  background: linear-gradient(135deg, rgba(183, 121, 31, 0.13), rgba(255,255,255,0.72));
+}
+.status-card.bad {
+  border-color: rgba(180, 35, 24, 0.22);
+  background: linear-gradient(135deg, rgba(180, 35, 24, 0.10), rgba(255,255,255,0.72));
+}
+.status-card h2 {
+  margin: 10px 0 6px;
+  font-size: clamp(1.25rem, 2vw, 1.8rem);
+}
+.status-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.next-steps {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--text);
+}
+.next-steps li {
+  line-height: 1.45;
 }
 .history-wrap {
   margin-top: 14px;
@@ -511,6 +553,7 @@ label span {
   .shell { width: min(100vw - 20px, 1180px); }
   .header-inner, .site-footer, .section-head { flex-direction: column; align-items: stretch; }
   .market-stats, .metric-grid, .listing-grid, .category-links, .filters-row, .form-grid { grid-template-columns: 1fr; }
+  .status-card { grid-template-columns: 1fr; }
   .market-intro h1 { font-size: 2rem; }
   .market-toolbar, .publish-panel, .category-panel, .detail-wrap, .legal-card, .login-card, .admin-panel { padding: 14px; }
   .image-preview { grid-template-columns: 1fr; }
