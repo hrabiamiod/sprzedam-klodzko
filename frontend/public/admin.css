@@ -136,6 +136,78 @@ th {
 .tag.bad { background: rgba(185, 28, 28, 0.12); color: var(--danger); }
 .tag.warn { background: rgba(183, 121, 31, 0.14); color: var(--amber); }
 
+.system-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.system-card,
+.system-box {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.72);
+}
+
+.system-card {
+  align-content: start;
+  min-height: 132px;
+}
+
+.system-card.ok { border-color: rgba(15, 118, 110, 0.22); }
+.system-card.warn { border-color: rgba(183, 121, 31, 0.26); }
+.system-card.bad { border-color: rgba(185, 28, 28, 0.26); }
+
+.system-card strong {
+  font-size: 1.04rem;
+}
+
+.system-card span:last-child {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.system-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.key-values {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.key-values div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.key-values div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.key-values dt {
+  color: var(--muted);
+}
+
+.key-values dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 900;
+}
+
 @media (max-width: 960px) {
   .admin-command { grid-template-columns: 1fr; }
+  .system-split { grid-template-columns: 1fr; }
 }

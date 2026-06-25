@@ -76,6 +76,11 @@ function formatDate(value) {
   return new Date(value).toLocaleString('pl-PL');
 }
 
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  return new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 1 }).format(bytes / 1024) + ' KB';
+}
+
 function statusLabel(status) {
   return STATUS_LABELS[status] || status || 'nieznany';
 }
@@ -110,6 +115,64 @@ function renderSession(user) {
     <span>IP sesji: ${esc(user.ip_address || 'nieznane')}</span>
     <span>MFA: ${esc(formatDate(user.mfa_verified_at))}</span>
     <span>Sesja do: ${esc(formatDate(user.expires_at))}</span>
+  `;
+}
+
+function systemStatusLabel(status) {
+  const labels = {
+    ok: 'OK',
+    warn: 'Do sprawdzenia',
+    bad: 'Blokada'
+  };
+  return labels[status] || status || 'nieznany';
+}
+
+function renderSystem(payload) {
+  const checks = payload.checks || [];
+  const operations = payload.operations || {};
+  const configData = payload.config || {};
+  return `
+    <div class="system-grid">
+      ${checks.map((check) => `
+        <article class="system-card ${esc(check.status)}">
+          <span class="tag ${esc(check.status)}">${esc(systemStatusLabel(check.status))}</span>
+          <strong>${esc(check.label)}</strong>
+          <span>${esc(check.detail)}</span>
+        </article>
+      `).join('')}
+    </div>
+    <div class="system-split">
+      <article class="system-box">
+        <span class="eyebrow">Operacje</span>
+        <dl class="key-values">
+          <div><dt>Środowisko</dt><dd>${esc(payload.environment)}</dd></div>
+          <div><dt>Wygenerowano</dt><dd>${esc(formatDate(payload.generated_at))}</dd></div>
+          <div><dt>Aktywne ogłoszenia</dt><dd>${esc(operations.activeListings || 0)}</dd></div>
+          <div><dt>Do moderacji</dt><dd>${esc(operations.pendingListings || 0)}</dd></div>
+          <div><dt>Zgłoszenia</dt><dd>${esc(operations.pendingReports || 0)}</dd></div>
+          <div><dt>Kolejka zadań</dt><dd>${esc(operations.pendingJobs || 0)}</dd></div>
+          <div><dt>Błędy zadań</dt><dd>${esc(operations.failedJobs || 0)}</dd></div>
+          <div><dt>Sesje admina</dt><dd>${esc(operations.activeAdminSessions || 0)}</dd></div>
+        </dl>
+      </article>
+      <article class="system-box">
+        <span class="eyebrow">Limity i runtime</span>
+        <dl class="key-values">
+          <div><dt>Domena</dt><dd>${esc(configData.siteBaseUrl)}</dd></div>
+          <div><dt>API</dt><dd>${esc(configData.apiBaseUrl)}</dd></div>
+          <div><dt>Model moderacji</dt><dd>${esc(configData.moderationModel)}</dd></div>
+          <div><dt>Aktywne / e-mail</dt><dd>${esc(configData.maxActivePerEmail)}</dd></div>
+          <div><dt>Publikacje / 7 dni</dt><dd>${esc(configData.maxPer7d)}</dd></div>
+          <div><dt>Limit zdjęcia</dt><dd>${esc(formatBytes(configData.maxImageBytes))}</dd></div>
+          <div><dt>Próg zgłoszeń</dt><dd>${esc(configData.reportThreshold)}</dd></div>
+          <div><dt>TTL admina</dt><dd>${esc(configData.sessionTtlHours)}h</dd></div>
+        </dl>
+      </article>
+    </div>
+    <div class="status-note">
+      Ostatnie zdarzenie: ${esc(operations.latestEvent?.event_type || 'brak')} (${esc(formatDate(operations.latestEvent?.created_at))}).
+      Ostatnia akcja admina: ${esc(operations.latestAdminLog?.action || 'brak')} (${esc(formatDate(operations.latestAdminLog?.created_at))}).
+    </div>
   `;
 }
 
@@ -414,6 +477,11 @@ async function loadDashboard() {
   ].join('');
 }
 
+async function loadSystem() {
+  const payload = await fetchJson('/admin/system');
+  document.getElementById('admin-system').innerHTML = renderSystem(payload);
+}
+
 async function loadListings() {
   const status = adminState.currentStatus || document.getElementById('listing-status-filter').value;
   const payload = await fetchJson(`/admin/listings?limit=50${status ? `&status=${encodeURIComponent(status)}` : ''}`);
@@ -521,7 +589,7 @@ async function bootstrap(skipLoginCheck = false) {
       loginCard.hidden = true;
       dashboard.hidden = false;
       logoutButton.hidden = false;
-      await Promise.all([loadDashboard(), loadListings(), loadReports(), loadUsers(), loadSessions(), loadLogs()]);
+      await Promise.all([loadDashboard(), loadSystem(), loadListings(), loadReports(), loadUsers(), loadSessions(), loadLogs()]);
     }
   } catch {
     loginCard.hidden = false;
@@ -533,6 +601,7 @@ async function bootstrap(skipLoginCheck = false) {
 document.getElementById('login-form')?.addEventListener('submit', login);
 document.getElementById('logout-button')?.addEventListener('click', logout);
 document.getElementById('refresh-admin')?.addEventListener('click', () => bootstrap(true).catch((error) => alert(error.message || String(error))));
+document.getElementById('refresh-system')?.addEventListener('click', () => loadSystem().catch((error) => alert(error.message || String(error))));
 document.getElementById('refresh-sessions')?.addEventListener('click', () => loadSessions().catch((error) => alert(error.message || String(error))));
 document.querySelector('[name="mfa"]')?.addEventListener('input', (event) => {
   event.currentTarget.value = event.currentTarget.value.replace(/\D/g, '').slice(0, 6);

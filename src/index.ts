@@ -130,6 +130,7 @@ type ModerationResponse = {
 
 type Env = {
   DB: D1Database;
+  APP_ENV?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODERATION_MODEL?: string;
   NTFY_TOPIC_URL?: string;
@@ -1715,6 +1716,117 @@ async function handleAdminUsers(request: Request, env: Env) {
   return json({ ok: true, items: rows.results || [] });
 }
 
+async function handleAdminSystem(request: Request, env: Env) {
+  const session = await requireAdminSession(request, env);
+  const cfgValue = cfg(env);
+  const now = nowIso();
+  const [
+    pendingListings,
+    activeListings,
+    pendingReports,
+    pendingJobs,
+    failedJobs,
+    activeSessions,
+    latestEvent,
+    latestAdminLog
+  ] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE status = 'pending' AND deleted_at IS NULL`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM listings WHERE status = 'approved' AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`).bind(now).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM listing_reports WHERE status = 'pending'`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM moderation_jobs WHERE status IN ('pending', 'processing')`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM moderation_jobs WHERE status = 'failed'`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM admin_sessions WHERE expires_at > ?`).bind(now).first<{ count: number }>(),
+    env.DB.prepare(`SELECT event_type, created_at FROM event_logs ORDER BY created_at DESC LIMIT 1`).first<{ event_type: string; created_at: string }>(),
+    env.DB.prepare(`SELECT action, created_at FROM admin_logs ORDER BY created_at DESC LIMIT 1`).first<{ action: string; created_at: string }>()
+  ]);
+  const checks = [
+    {
+      key: 'site',
+      label: 'Publiczna domena',
+      status: cfgValue.siteBaseUrl.startsWith('https://') ? 'ok' : 'bad',
+      detail: cfgValue.siteBaseUrl
+    },
+    {
+      key: 'api',
+      label: 'API pod tą samą domeną',
+      status: cfgValue.apiBaseUrl === '/api' ? 'ok' : 'warn',
+      detail: cfgValue.apiBaseUrl
+    },
+    {
+      key: 'turnstile',
+      label: 'Turnstile',
+      status: env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET_KEY ? 'ok' : 'bad',
+      detail: env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET_KEY ? 'skonfigurowany' : 'brakuje site key albo secret key'
+    },
+    {
+      key: 'moderation',
+      label: 'Moderacja OpenAI',
+      status: env.OPENAI_API_KEY ? 'ok' : 'warn',
+      detail: env.OPENAI_API_KEY ? cfgValue.moderationModel : 'brak OPENAI_API_KEY'
+    },
+    {
+      key: 'ntfy',
+      label: 'Powiadomienia ntfy',
+      status: env.NTFY_TOPIC_URL ? 'ok' : 'warn',
+      detail: env.NTFY_TOPIC_URL ? 'skonfigurowane' : 'brak NTFY_TOPIC_URL'
+    },
+    {
+      key: 'admin_mfa',
+      label: 'Admin MFA/TOTP',
+      status: env.ADMIN_TOTP_SECRET ? 'ok' : 'bad',
+      detail: env.ADMIN_TOTP_SECRET ? 'wymagane przy logowaniu' : 'brak ADMIN_TOTP_SECRET'
+    },
+    {
+      key: 'admin_session',
+      label: 'Sekret sesji admina',
+      status: env.ADMIN_SESSION_SECRET ? 'ok' : 'bad',
+      detail: env.ADMIN_SESSION_SECRET ? `TTL ${cfgValue.sessionTtlHours}h` : 'brak ADMIN_SESSION_SECRET'
+    },
+    {
+      key: 'admin_allowlist',
+      label: 'Allowlista IP admina',
+      status: env.ADMIN_ALLOWED_IPS ? 'ok' : 'bad',
+      detail: env.ADMIN_ALLOWED_IPS ? 'aktywna' : 'brak ADMIN_ALLOWED_IPS'
+    },
+    {
+      key: 'cron',
+      label: 'Cron produkcyjny',
+      status: env.APP_ENV === 'prod' ? 'ok' : 'warn',
+      detail: env.APP_ENV === 'prod' ? 'prod: 0 * * * *' : `środowisko: ${env.APP_ENV || 'unknown'}`
+    }
+  ];
+  await logAdmin(env, { adminUsername: session.username, action: 'system.view', ipAddress: getClientIp(request) });
+  return json({
+    ok: true,
+    generated_at: now,
+    environment: env.APP_ENV || 'unknown',
+    config: {
+      siteName: cfgValue.siteName,
+      siteBaseUrl: cfgValue.siteBaseUrl,
+      apiBaseUrl: cfgValue.apiBaseUrl,
+      moderationModel: cfgValue.moderationModel,
+      maxActivePerEmail: cfgValue.maxActivePerEmail,
+      maxPer7d: cfgValue.maxPer7d,
+      maxImageBytes: cfgValue.maxImageBytes,
+      reportThreshold: cfgValue.reportThreshold,
+      reminderDays: cfgValue.reminderDays,
+      sessionTtlHours: cfgValue.sessionTtlHours,
+      throttles: THROTTLES
+    },
+    checks,
+    operations: {
+      pendingListings: pendingListings?.count || 0,
+      activeListings: activeListings?.count || 0,
+      pendingReports: pendingReports?.count || 0,
+      pendingJobs: pendingJobs?.count || 0,
+      failedJobs: failedJobs?.count || 0,
+      activeAdminSessions: activeSessions?.count || 0,
+      latestEvent: latestEvent || null,
+      latestAdminLog: latestAdminLog || null
+    }
+  });
+}
+
 async function handleAdminSessions(request: Request, env: Env) {
   const session = await requireAdminSession(request, env);
   const rows = await env.DB.prepare(
@@ -1911,6 +2023,9 @@ async function handleApi(request: Request, env: Env, ctx: ExecutionContext) {
     }
     if (pathname === '/api/admin/users' && request.method === 'GET') {
       return maybeWithCors(request, await handleAdminUsers(request, env));
+    }
+    if (pathname === '/api/admin/system' && request.method === 'GET') {
+      return maybeWithCors(request, await handleAdminSystem(request, env));
     }
     if (pathname === '/api/admin/sessions' && request.method === 'GET') {
       return maybeWithCors(request, await handleAdminSessions(request, env));
